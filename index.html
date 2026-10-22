@@ -327,9 +327,12 @@
           <input id="bookYearInput" placeholder="e.g. 1908" />
         </label>
       </div>
-      <label>Upload Text File (.txt, .md) or Paste Excerpts / Full Doctrines Below
-        <input type="file" id="bookFileInput" accept=".txt,.md,.json" style="margin-bottom:6px;" />
-        <textarea id="bookTextInput" rows="7" placeholder="Paste chapters, passages, philosophical notes, or key laws from the book here. Poseidon will extract the core principles, tactical laws, living axioms, and sovereign directives into his permanent brain..."></textarea>
+      <label>Upload Book (PDF of Any Size, EPUB, TXT) or Paste Excerpts
+        <input type="file" id="bookFileInput" accept=".pdf,.epub,.txt,.md,.json" style="margin-bottom:6px;" />
+        <div id="bookUploadProgress" class="hidden" style="margin: 8px 0; padding: 10px 14px; background: rgba(0, 163, 255, 0.08); border: 1px solid rgba(0, 163, 255, 0.25); border-radius: 8px; font-size: 13px; color: #8bc34a;">
+          <div id="bookUploadStatusText">Ready</div>
+        </div>
+        <textarea id="bookTextInput" rows="6" placeholder="Paste chapters, passages, philosophical notes, or key laws from the book here. If uploading a PDF of any size (50MB+), leave this empty or add personal notes. Poseidon will extract the structure, synthesize detailed chapter masterclasses, and update his brain with living axioms and tactical laws..."></textarea>
       </label>
       <div class="row end">
         <button id="closeBookBtn" type="button" class="ghost">Cancel</button>

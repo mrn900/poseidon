@@ -1961,11 +1961,22 @@ if ($('#bookFileInput')) {
   $('#bookFileInput').onchange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const nameWithoutExt = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
     if (!$('#bookTitleInput').value) {
-      $('#bookTitleInput').value = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+      $('#bookTitleInput').value = nameWithoutExt;
     }
-    const text = await file.text();
-    $('#bookTextInput').value = text;
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      $('#bookTextInput').placeholder = `PDF Selected: "${file.name}" (${sizeMb} MB). Click "Absorb Into Sacred Library" to stream the complete volume, extract chapters, and generate masterclass analyses.`;
+      $('#bookTextInput').value = '';
+    } else {
+      try {
+        const text = await file.text();
+        $('#bookTextInput').value = text;
+      } catch (err) {
+        console.error('File read error:', err);
+      }
+    }
   };
 }
 
@@ -1974,32 +1985,70 @@ if ($('#saveBookBtn')) {
     const title = $('#bookTitleInput').value.trim();
     const author = $('#bookAuthorInput').value.trim();
     const year = $('#bookYearInput').value.trim();
+    const file = $('#bookFileInput')?.files?.[0];
     const rawText = $('#bookTextInput').value.trim();
 
-    if (!rawText) {
-      alert('Please paste or upload the book teachings, notes, or passages.');
+    if (!file && !rawText) {
+      alert('Please select a PDF or text file, or paste book teachings.');
       return;
     }
 
     const btn = $('#saveBookBtn');
+    const progressBox = $('#bookUploadProgress');
+    const statusText = $('#bookUploadStatusText');
+
     btn.disabled = true;
-    btn.textContent = 'Absorbing Into Brain...';
+    if (progressBox) progressBox.classList.remove('hidden');
+
     try {
-      const res = await fetch('/api/books', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, author, year, rawText })
-      });
-      const entry = await res.json();
-      if (!res.ok) throw new Error(entry.error || 'Failed to absorb book');
+      let entry;
+      if (file && file.name.toLowerCase().endsWith('.pdf')) {
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+        if (statusText) statusText.textContent = `Streaming PDF "${file.name}" (${sizeMb} MB) to Sacred Library...`;
+        btn.textContent = 'Uploading PDF...';
+
+        const res = await fetch('/api/books/upload-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            'x-file-name': encodeURIComponent(file.name),
+            'x-book-title': encodeURIComponent(title || file.name),
+            'x-book-author': encodeURIComponent(author || 'Sacred Tradition'),
+            'x-book-year': encodeURIComponent(year || '')
+          },
+          body: file
+        });
+
+        if (statusText) statusText.textContent = 'Analyzing PDF, generating chapter masterclasses and updating brain...';
+        btn.textContent = 'Synthesizing Wisdom...';
+
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to ingest PDF');
+        entry = json.book || json;
+      } else {
+        btn.textContent = 'Absorbing Into Brain...';
+        if (statusText) statusText.textContent = 'Synthesizing doctrine, chapters, and living axioms...';
+        const res = await fetch('/api/books', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, author, year, rawText })
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to absorb book');
+        entry = json;
+      }
+
       bookModal.classList.add('hidden');
       await refreshBrain();
-      addMsg('assistant', `I have absorbed **${entry.title}** (${entry.author}) into my permanent Sacred Library. Its core principles and tactical laws are now active across my counsel.\n\n**Summary:** ${entry.summary}`);
+      const chCount = (entry.chapters || []).length;
+      addMsg('assistant', `I have absorbed **${entry.title}** (${entry.author || 'Sacred Tradition'}) into my permanent Sacred Library with ${chCount} detailed chapter masterclasses. Its living axioms and tactical laws are active across all my thinking.\n\n**Summary:** ${entry.summary}`);
     } catch (err) {
       alert('Error absorbing book: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Absorb Into Sacred Library';
+      if (progressBox) progressBox.classList.add('hidden');
     }
-    btn.disabled = false;
-    btn.textContent = 'Absorb Into Sacred Library';
   };
 }
 
