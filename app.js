@@ -269,7 +269,17 @@ function loadLocalVault() {
   } catch { return null; }
 }
 
-async function directAutonomousGeminiChat(userMessage, images = []) {
+let currentChatAbortController = null;
+let isGeneratingChat = false;
+
+function stopCurrentPrompt() {
+  if (isGeneratingChat && currentChatAbortController) {
+    try { currentChatAbortController.abort(); } catch {}
+    if (typeof toast === 'function') toast('Prompt cut short', 'gold');
+  }
+}
+
+async function directAutonomousGeminiChat(userMessage, images = [], signal = null) {
   const HARDCODED_KEY = atob('QVEuQWI4Uk42STR4UHBVal9sVWdOblB3VXU2QTAtY3hrb1dKYVJLa0VrZjN5ZWVkZENDbnc=');
   const key = state.settings?.directKey || localStorage.getItem('poseidon_direct_key') || HARDCODED_KEY;
   if (!key) throw new Error('NO_DIRECT_KEY');
@@ -289,10 +299,12 @@ async function directAutonomousGeminiChat(userMessage, images = []) {
 
   const models = ['gemini-3-flash-preview', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
   for (const mName of models) {
+    if (signal?.aborted) throw new Error('PROMPT_ABORTED');
     try {
       const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mName}:generateContent?key=${encodeURIComponent(key)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: signal || undefined,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: sys }] },
           contents: recent,
@@ -304,8 +316,11 @@ async function directAutonomousGeminiChat(userMessage, images = []) {
       const parts = (d.candidates?.[0]?.content?.parts || []).filter(p => !p.thought);
       const text = parts.map(p => p.text || '').join('').replace(/[\u2014\u2013]/g, ', ').replace(/\s+--\s+/g, ', ');
       if (text) return text;
-    } catch {}
+    } catch (err) {
+      if (err.name === 'AbortError' || signal?.aborted) throw new Error('PROMPT_ABORTED');
+    }
   }
+  if (signal?.aborted) throw new Error('PROMPT_ABORTED');
   throw new Error('Autonomous connection could not reach Gemini.');
 }
 
@@ -320,9 +335,18 @@ async function send(text) {
   autosize();
   pendingImages = [];
   renderAttachPreview();
-  sendBtn.disabled = true;
-  const learnBaseline = (state.brain?.learningLog || []).length;
 
+  isGeneratingChat = true;
+  currentChatAbortController = new AbortController();
+  const signal = currentChatAbortController.signal;
+
+  sendBtn.disabled = false;
+  sendBtn.classList.add('is-generating');
+  sendBtn.setAttribute('aria-label', 'Stop generating (Cut out prompt)');
+  sendBtn.setAttribute('title', 'Cut out prompt (Stop)');
+  sendBtn.innerHTML = `<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+
+  const learnBaseline = (state.brain?.learningLog || []).length;
   const userTs = Date.now();
   const userEl = addMsg('user', text, userTs, '', images.map(i => ({ thumb: i.thumb })));
   userEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -342,21 +366,21 @@ async function send(text) {
 
   let fullReply = '';
   let streamStarted = false;
+  let wasAborted = false;
 
   try {
     const r = await fetch('/api/chat?stream=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({ message: text, images: images.map(i => ({ mime: i.mime, data: i.data, thumb: i.thumb })) })
     });
 
     if (!r.ok) {
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       bubble.innerHTML = esc(j.error || 'The waters are troubled.');
       bubble.classList.add('error');
       if (r.status === 412) openSettings();
-      sendBtn.disabled = false;
-      input.focus();
       return;
     }
 
@@ -365,6 +389,11 @@ async function send(text) {
     let buffer = '';
 
     while (true) {
+      if (signal.aborted) {
+        wasAborted = true;
+        try { await reader.cancel(); } catch {}
+        break;
+      }
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -372,6 +401,11 @@ async function send(text) {
       buffer = lines.pop();
 
       for (const line of lines) {
+        if (signal.aborted) {
+          wasAborted = true;
+          try { await reader.cancel(); } catch {}
+          break;
+        }
         const trimmed = line.trim();
         if (trimmed.startsWith('data:')) {
           const jsonStr = trimmed.slice(5).trim();
@@ -381,8 +415,6 @@ async function send(text) {
               if (data.error) {
                 bubble.innerHTML = 'The waters encountered resistance: ' + esc(data.error);
                 bubble.classList.add('error');
-                sendBtn.disabled = false;
-                input.focus();
                 return;
               }
               if (data.text) {
@@ -399,9 +431,20 @@ async function send(text) {
           }
         }
       }
+      if (wasAborted) break;
     }
 
-    if (!fullReply) {
+    if (wasAborted) {
+      if (fullReply) {
+        fullReply += '\n\n*(Prompt cut short)*';
+        bubble.innerHTML = md(fullReply);
+        t._rawText = fullReply;
+      } else {
+        fullReply = '*(Poseidon was halted)*';
+        bubble.innerHTML = md(fullReply);
+        t._rawText = fullReply;
+      }
+    } else if (!fullReply) {
       fullReply = 'The waters returned in silence. Speak again.';
       bubble.innerHTML = md(fullReply);
       t._rawText = fullReply;
@@ -417,9 +460,28 @@ async function send(text) {
     watchLearning(learnBaseline);
     if (typeof loadConversations === 'function') loadConversations();
   } catch (e) {
+    if (signal.aborted || e.name === 'AbortError' || e.message === 'PROMPT_ABORTED') {
+      wasAborted = true;
+      if (fullReply) {
+        fullReply += '\n\n*(Prompt cut short)*';
+        bubble.innerHTML = md(fullReply);
+        t._rawText = fullReply;
+      } else {
+        fullReply = '*(Poseidon was halted)*';
+        bubble.innerHTML = md(fullReply);
+        t._rawText = fullReply;
+      }
+      const doneTs = Date.now();
+      state.convo = state.convo || [];
+      state.convo.push({ role: 'user', content: text, ts: userTs, images: images.map(i => ({ thumb: i.thumb })) }, { role: 'assistant', content: fullReply, ts: doneTs });
+      if (state.brain) state.brain.lastChatAt = doneTs;
+      saveLocalVault();
+      updateLastInChatStatus();
+      return;
+    }
     // Autonomous Phone Mode Fallback when Mac is asleep, off, or unreachable
     try {
-      fullReply = await directAutonomousGeminiChat(text, images);
+      fullReply = await directAutonomousGeminiChat(text, images, signal);
       bubble.innerHTML = md(fullReply);
       t._rawText = fullReply;
       const replyTs = Date.now();
@@ -433,13 +495,23 @@ async function send(text) {
       saveLocalVault();
       updateLastInChatStatus();
     } catch (fallbackErr) {
+      if (signal.aborted || fallbackErr.name === 'AbortError' || fallbackErr.message === 'PROMPT_ABORTED') {
+        bubble.innerHTML = md('*(Poseidon was halted)*');
+        return;
+      }
       bubble.innerHTML = 'Mac is currently asleep/offline and direct key was not reached. All 30 Ancient Books in your Codex Reader, Dreams, and Rants remain 100% accessible offline right now.';
       bubble.classList.add('error');
     }
+  } finally {
+    isGeneratingChat = false;
+    currentChatAbortController = null;
+    sendBtn.classList.remove('is-generating');
+    sendBtn.removeAttribute('title');
+    sendBtn.setAttribute('aria-label', 'Send');
+    sendBtn.innerHTML = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`;
+    sendBtn.disabled = false;
+    input.focus();
   }
-
-  sendBtn.disabled = false;
-  input.focus();
 }
 
 function autosize() {
@@ -450,12 +522,33 @@ input.addEventListener('input', autosize);
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
+    if (isGeneratingChat) {
+      stopCurrentPrompt();
+      return;
+    }
     send(input.value);
   }
 });
 $('#composer').addEventListener('submit', e => {
   e.preventDefault();
+  if (isGeneratingChat) {
+    stopCurrentPrompt();
+    return;
+  }
   send(input.value);
+});
+sendBtn.addEventListener('click', e => {
+  if (isGeneratingChat) {
+    e.preventDefault();
+    e.stopPropagation();
+    stopCurrentPrompt();
+  }
+});
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && isGeneratingChat) {
+    e.preventDefault();
+    stopCurrentPrompt();
+  }
 });
 document.querySelectorAll('.quick button').forEach(b => {
   b.onclick = () => {
