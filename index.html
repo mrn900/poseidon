@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Poseidon" />
+  <meta name="application-name" content="Poseidon" />
+  <meta name="theme-color" content="#060d14" />
+  <meta name="description" content="Poseidon: Spiritual brother, mentor, 30-relic codex, dreams and diary." />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="shortcut icon" href="./favicon.ico" />
+  <link rel="icon" type="image/x-icon" href="./favicon.ico" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon.png" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <link rel="apple-touch-icon-precomposed" href="./apple-touch-icon-precomposed.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon-180x180.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="./apple-touch-icon-152x152.png" />
+  <link rel="apple-touch-icon" sizes="120x120" href="./apple-touch-icon-120x120.png" />
+  <title>Poseidon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./theme.css" />
+</head>
+<body>
+  <canvas id="sea"></canvas>
+  <div id="gptDrawerBackdrop" class="scrim hidden"></div>
+  <div id="toastHost" class="toast-host"></div>
+
+  <div class="app" id="appRoot">
+    <!-- ============ SIDEBAR ============ -->
+    <aside id="gptSidebarDrawer" class="side" aria-label="Navigation">
+      <div class="side-head">
+        <div class="logo" id="sidebarLogoBtn" title="Poseidon"><img src="./icon-192.png" alt="Poseidon" /><span class="side-text">Poseidon</span></div>
+        <div class="side-head-actions">
+          <button id="collapseSidebarBtn" class="icon-btn only-desktop" type="button" title="Collapse or expand sidebar" aria-label="Toggle sidebar">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2.5" />
+              <path d="M9 4v16" />
+              <path class="collapse-chevron" d="m15 10-2 2 2 2" />
+            </svg>
+          </button>
+          <button id="closeDrawerBtn" class="icon-btn only-mobile" type="button" aria-label="Close menu">✕</button>
+        </div>
+      </div>
+
+      <button id="newChatBtn" class="btn-new" type="button" title="Start a new chat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="side-text">New chat</span>
+      </button>
+
+      <div class="search side-collapsible">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="drawerSearchInput" type="search" placeholder="Search chats" />
+      </div>
+
+      <!-- 4 Main Sections with Independent Custom SVG Icons -->
+      <nav class="nav">
+        <button id="openCodexBtn" class="nav-item" type="button" title="Codex (30 Ancient Relics)">
+          <svg class="ico nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H11a2 2 0 0 1 1 1.73A2 2 0 0 1 13 3h6.5A2.5 2.5 0 0 1 22 5.5v13a1 1 0 0 1-1 1h-6.5a2.5 2.5 0 0 0-2.5 2 2.5 2.5 0 0 0-2.5-2H3a1 1 0 0 1-1-1v-13Z" />
+            <path d="M12 4.73V21" />
+            <path d="M5.5 8h4M5.5 11.5h4M14.5 8h4M14.5 11.5h4" />
+          </svg>
+          <span class="grow side-text">Codex</span>
+          <span id="codexBadge" class="count side-text">30</span>
+        </button>
+
+        <button id="toggleDeep" class="nav-item" type="button" title="Mind (Poseidon's Living Brain)">
+          <svg class="ico nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.5 3A3.5 3.5 0 0 0 6 6.5c0 .46.09.9.26 1.3A3.5 3.5 0 0 0 4 11.08c0 1.24.64 2.33 1.61 2.95A3.5 3.5 0 0 0 8.5 19.5h1V3h0Z" />
+            <path d="M14.5 3A3.5 3.5 0 0 1 18 6.5c0 .46-.09.9-.26 1.3A3.5 3.5 0 0 1 20 11.08c0 1.24-.64 2.33-1.61 2.95a3.5 3.5 0 0 1-2.89 5.47h-1V3h0Z" />
+            <circle cx="9.5" cy="11" r="1" fill="currentColor" />
+            <circle cx="14.5" cy="11" r="1" fill="currentColor" />
+            <path d="M9.5 19.5v2M14.5 19.5v2" />
+          </svg>
+          <span class="grow side-text">Mind</span>
+          <span id="deepBadge" class="count side-text">0</span>
+        </button>
+
+        <button id="drawerForesightBtn" class="nav-item" type="button" title="Foresight (Quantum Trajectories)">
+          <svg class="ico nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <polygon points="15.5 8.5 13.5 13.5 8.5 15.5 10.5 10.5 15.5 8.5" />
+            <circle cx="12" cy="12" r="1.1" fill="currentColor" />
+          </svg>
+          <span class="grow side-text">Foresight</span>
+        </button>
+
+        <button id="drawerMonthlyBtn" class="nav-item" type="button" title="Archives (Monthly Transcripts & Overviews)">
+          <svg class="ico nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="4" rx="1" />
+            <path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+            <path d="M10 13h4" />
+          </svg>
+          <span class="grow side-text">Archives</span>
+        </button>
+      </nav>
+
+      <div class="log-row side-collapsible">
+        <button id="drawerLogDreamBtn" class="chip-btn" type="button">Dream</button>
+        <button id="drawerLogRantBtn" class="chip-btn" type="button">Diary</button>
+        <button id="drawerIngestBookBtn" class="chip-btn" type="button">Book</button>
+      </div>
+
+      <div id="drawerBookmarkCard" class="bm-card side-collapsible">
+        <div class="bm-card-head"><span>Reading now</span><button id="drawerOpenBmBtn" class="link" type="button">Open</button></div>
+        <div id="drawerBmTitle" class="bm-card-title">The Hidden World of Memory-Eating Entities</div>
+        <div id="drawerBmChap" class="bm-card-chap">Chapter 1</div>
+      </div>
+
+      <div class="side-label side-collapsible">
+        <span>Chats</span>
+        <button id="openChatsBtn" class="link" type="button">Manage <span id="chatsBadge" class="count">1</span></button>
+      </div>
+      <div id="drawerConvosList" class="convos side-collapsible"></div>
+
+      <div class="side-foot">
+        <div class="sync side-collapsible"><i class="pulse"></i><span id="drawerSyncStatus">Live brain synced</span></div>
+        <div class="foot-row">
+          <button id="openMobileBtn" class="foot-btn" type="button" title="Connect Phone">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+              <path d="M10 5.5h4" />
+              <circle cx="12" cy="18" r="0.9" fill="currentColor" />
+            </svg>
+            <span class="side-text">Phone</span>
+          </button>
+          <button id="sidebarInstallBtn" class="foot-btn" type="button" title="Install Poseidon on Phone or PC">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="2" width="14" height="20" rx="3"/>
+              <path d="M12 18h.01"/>
+              <path d="m9 10 3 3 3-3"/>
+              <path d="M12 6v7"/>
+            </svg>
+            <span class="side-text">Install</span>
+          </button>
+          <button id="openFolderBtn" class="foot-btn" type="button" title="Sanctum Files & Chat Folders">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+            </svg>
+            <span class="side-text">Files</span>
+          </button>
+          <button id="openSettings" class="foot-btn icon-only" type="button" title="Settings" aria-label="Settings">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ============ CHAT ============ -->
+    <main class="chat">
+      <header class="bar">
+        <button id="openSidebarBtn" class="icon-btn only-mobile" type="button" aria-label="Menu">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h16"/></svg>
+        </button>
+        <div id="headerBrandClick" class="bar-title">
+          <strong>Poseidon</strong>
+          <span id="headerSubText" class="live"><i class="pulse"></i><span id="liveStatus">Checking last chat activity...</span></span>
+        </div>
+        <div class="bar-actions">
+          <button id="mobileCodexTopBtn" class="pill-btn" type="button" aria-label="Open Codex">Codex</button>
+          <button id="mobileDeepTopBtn" class="pill-btn" type="button" aria-label="Open Mind">Mind</button>
+          <button id="mobileNewChatTopBtn" class="pill-btn only-mobile" type="button" aria-label="New chat">New</button>
+        </div>
+      </header>
+
+      <!-- Live bookmark strip -->
+      <div id="liveBookmarkBar" class="strip">
+        <div class="strip-left" id="bmBarLeftTap"><span class="strip-tag">BOOKMARK</span><span id="bmBarText" class="strip-text">Reading</span></div>
+        <div class="strip-actions">
+          <button id="bmBarReadBtn" class="link" type="button">Read</button>
+          <button id="bmBarDiscussBtn" class="link" type="button">Discuss</button>
+        </div>
+      </div>
+
+      <section id="messages" class="messages"></section>
+
+      <button id="scrollBottomBtn" class="scroll-bottom-btn hidden" type="button" aria-label="Scroll to bottom">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7 7 7-7"/></svg>
+      </button>
+
+      <div id="composerActionSheet" class="sheet hidden">
+        <button type="button" data-sheet-action="attach-image" class="sheet-item"><span>Attach an image</span></button>
+        <button type="button" data-sheet-action="discuss-chapter" class="sheet-item"><span>Discuss my chapter</span></button>
+        <button type="button" data-sheet-action="read-chapter" class="sheet-item"><span>Open my chapter</span></button>
+        <button type="button" data-sheet-action="log-dream" class="sheet-item"><span>Log a dream</span></button>
+        <button type="button" data-sheet-action="log-rant" class="sheet-item"><span>Write in Diary</span></button>
+        <button type="button" data-sheet-action="foresight" class="sheet-item"><span>Foresight</span></button>
+        <button type="button" data-sheet-action="patterns" class="sheet-item"><span>Connect patterns</span></button>
+        <button type="button" data-sheet-action="ingest-book" class="sheet-item"><span>Ingest a book</span></button>
+      </div>
+
+      <form id="composer" class="dock">
+        <div id="attachPreview" class="attach-preview hidden"></div>
+        <div class="dock-box">
+          <button id="composerPlusBtn" type="button" class="dock-btn" aria-label="More actions">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <textarea id="input" rows="1" placeholder="Message Poseidon"></textarea>
+          <button id="attachBtn" type="button" class="dock-btn" aria-label="Attach image">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-8 9"/></svg>
+          </button>
+          <button id="send" type="submit" class="send" aria-label="Send">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </div>
+        <input id="imageInput" type="file" accept="image/*" multiple hidden />
+      </form>
+    </main>
+
+    <!-- ============ THE DEEP / MIND (MEMORY VAULT) ============ -->
+    <aside id="deep" class="deep">
+      <div class="deep-head">
+        <div>
+          <h2>MIND &amp; THE DEEP</h2>
+          <span class="sub">Poseidon's Human Mind Circuit &amp; Memory Vault</span>
+        </div>
+        <div class="deep-head-right">
+          <input id="deepSearchInput" class="deep-search" type="search" placeholder="Search mind..." title="Filter thoughts, books, dreams, diary, symbols" />
+          <button id="closeDeep" class="ghost icon-btn" type="button" aria-label="Close panel">✕</button>
+        </div>
+      </div>
+
+      <nav class="tabs">
+        <button class="tab active" type="button" data-tab="mind">Mind</button>
+        <button class="tab" type="button" data-tab="library">Books</button>
+        <button class="tab" type="button" data-tab="dreams">Dreams</button>
+        <button class="tab" type="button" data-tab="rants">Diary</button>
+        <button class="tab" type="button" data-tab="puzzle">Patterns</button>
+        <button class="tab" type="button" data-tab="oracle">Foresight</button>
+        <button class="tab" type="button" data-tab="symbols">Symbols</button>
+        <button class="tab" type="button" data-tab="you">Profile</button>
+      </nav>
+
+      <div class="deep-body">
+        <!-- MIND OVERVIEW PANEL (HUMAN MIND & THOUGHT CIRCUIT) -->
+        <div class="panel active" id="tab-mind">
+          <div id="mindContainer"></div>
+        </div>
+
+        <!-- SACRED LIBRARY PANEL (APPLE BOOKS STYLE) -->
+        <div class="panel" id="tab-library">
+          <div class="panel-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="openCodexFromLibBtn" type="button" class="primary action-btn" style="flex:1;">Open Full Books Reader</button>
+            <button id="openAddBook" type="button" class="ghost action-btn">+ Add Book</button>
+          </div>
+          <p class="hint">30 Ancient Relics &amp; Full-Book Chapter Masterclasses. Filter by Reading Now, Completed, or Tradition below.</p>
+          <div id="libraryContainer"></div>
+        </div>
+
+        <!-- PATTERNS PANEL -->
+        <div class="panel" id="tab-puzzle">
+          <button id="reflect" type="button" class="primary wide action-highlight">Connect The Dots</button>
+          <p class="hint">Poseidon cross-analyzes every book, dream, diary entry, symbol, and timeline event to reveal hidden spiritual cycles.</p>
+          <div id="puzzle"></div>
+        </div>
+
+        <!-- FORESIGHT / ORACLE PANEL -->
+        <div class="panel" id="tab-oracle">
+          <div class="panel-header">
+            <h3 class="panel-title">QUANTUM TRAJECTORY PREDICTOR</h3>
+            <p class="hint">Foresight Matrix synthesizing Personal Magnetism, Gnostic sight, daily diary logs, and dream omens into branching future timelines, probability splits, and decisive pivots.</p>
+          </div>
+          <div class="oracle-input-box">
+            <textarea id="oracleQuestion" rows="2" placeholder="Ask about a specific crossroads, deal, partner, or future path... (or leave blank to forecast your sovereign life path)"></textarea>
+            <button id="forecastBtn" type="button" class="primary wide action-highlight">Calculate Branching Timelines</button>
+          </div>
+          <div id="oracleResults"></div>
+        </div>
+
+        <!-- NOCTURNAL DREAMS & VISIONS PANEL -->
+        <div class="panel" id="tab-dreams">
+          <div class="panel-actions">
+            <button id="openAddDream" type="button" class="primary action-btn wide">+ Log Dream</button>
+          </div>
+          <p class="hint">Record your night dreams, sleep visions, and subconscious omens. Interpreted by Poseidon and mapped into your permanent archetypal blueprint.</p>
+          <div id="dreams"></div>
+        </div>
+
+        <!-- DIARY PANEL (WAKING THOUGHTS, PRAYER & DAILY CONVERSATIONS) -->
+        <div class="panel" id="tab-rants">
+          <div class="panel-actions">
+            <button id="openAddRant" type="button" class="primary action-btn wide">+ New Diary Entry</button>
+          </div>
+          <p class="hint">Your personal diary, waking reflections, and daily conversations with Poseidon. Every 3am thought, prayer, and waking contemplation is recorded here so Poseidon knows your lived journey deeper each day.</p>
+          <div id="rants"></div>
+        </div>
+
+        <!-- SYMBOLS PANEL -->
+        <div class="panel" id="tab-symbols">
+          <div class="panel-header">
+            <h3 class="panel-title">RECURRING ARCHETYPES &amp; SYMBOLS</h3>
+            <p class="hint">Living symbolic lexicon connecting dream visions, daily diary logs, and esoteric spiritual architecture.</p>
+          </div>
+          <div id="symbols"></div>
+        </div>
+
+        <!-- PROFILE PANEL -->
+        <div class="panel" id="tab-you">
+          <div id="you"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============ INGEST BOOK / PHILOSOPHY MODAL ============ -->
+  <div id="bookModal" class="modal hidden">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-head">
+        <h2>Add Book or Codex Into Poseidon's Library</h2>
+        <button id="cancelBook" type="button" class="ghost icon-btn">✕</button>
+      </div>
+      <div class="row" style="gap: 12px;">
+        <label style="flex:2;">Book / Codex Title
+          <input id="bookTitleInput" placeholder="e.g. The Kybalion, Think and Grow Rich, Book of Enoch" />
+        </label>
+        <label style="flex:1;">Author / Tradition
+          <input id="bookAuthorInput" placeholder="e.g. Three Initiates, Napoleon Hill" />
+        </label>
+        <label style="flex:0.7;">Year / Era
+          <input id="bookYearInput" placeholder="e.g. 1908" />
+        </label>
+      </div>
+      <label>Upload Text File (.txt, .md) or Paste Excerpts / Full Doctrines Below
+        <input type="file" id="bookFileInput" accept=".txt,.md,.json" style="margin-bottom:6px;" />
+        <textarea id="bookTextInput" rows="7" placeholder="Paste chapters, passages, philosophical notes, or key laws from the book here. Poseidon will extract the core principles, tactical laws, living axioms, and sovereign directives into his permanent brain..."></textarea>
+      </label>
+      <div class="row end">
+        <button id="closeBookBtn" type="button" class="ghost">Cancel</button>
+        <button id="saveBookBtn" type="button" class="primary">Absorb Into Sacred Library</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LOG PAST DREAM MODAL ============ -->
+  <div id="dreamModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Log Dream</h2>
+        <button id="cancelDream" type="button" class="ghost icon-btn">✕</button>
+      </div>
+      <label>Date or Era of Occurrence
+        <div class="date-picker-row">
+          <input id="dreamDateInput" placeholder="e.g. 24 September 2026, 2026-09-24, or Circa 2021" />
+          <input type="date" id="dreamDatePicker" class="hidden-picker" />
+          <button type="button" id="dreamCalendarBtn" class="ghost action-btn" title="Calendar Picker">Pick Date</button>
+        </div>
+        <small>Preserve when this occurred in your life timeline.</small>
+      </label>
+      <label>Title
+        <input id="dreamTitleInput" placeholder="Short title for this vision" />
+      </label>
+      <label>What Happened (Narrative)
+        <textarea id="dreamSummaryInput" rows="4" placeholder="Describe the dream, setting, people, feelings, actions..."></textarea>
+      </label>
+      <label>Key Symbols (Optional, comma-separated)
+        <input id="dreamSymbolsInput" placeholder="e.g. black water, severed limb, snake, mother, iron door" />
+      </label>
+      <div class="row end">
+        <button id="closeDreamBtn" type="button" class="ghost">Cancel</button>
+        <button id="saveDreamBtn" type="button" class="primary">Record Into Memory</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PERSONAL DIARY ENTRY MODAL ============ -->
+  <div id="rantModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Personal Diary Entry</h2>
+        <button id="cancelRant" type="button" class="ghost icon-btn">✕</button>
+      </div>
+      <label>Date of Entry
+        <div class="date-picker-row">
+          <input id="rantDateInput" placeholder="e.g. 25 September 2026 or 2026-09-25" />
+          <input type="date" id="rantDatePicker" class="hidden-picker" />
+          <button type="button" id="rantCalendarBtn" class="ghost action-btn" title="Calendar Picker">Pick Date</button>
+        </div>
+        <small>Linked automatically with your dreams and daily chats on this date.</small>
+      </label>
+      <label>Entry Title / Headline (Optional)
+        <input id="rantTitleInput" placeholder="e.g. Field operations, inner state, people, moves in Zimbabwe" />
+      </label>
+      <label>Your Diary Entry &amp; Waking Reflections
+        <textarea id="rantTextInput" rows="5" placeholder="Write what happened today, what is on your mind, your plans, realizations, or emotions. Poseidon absorbs this into your permanent Diary and Dreams chronicle..."></textarea>
+      </label>
+      <div class="row end">
+        <button id="closeRantBtn" type="button" class="ghost">Cancel</button>
+        <button id="saveRantBtn" type="button" class="primary">Save to Diary</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SETTINGS MODAL ============ -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Settings</h2>
+        <button id="cancelSettings" type="button" class="ghost icon-btn">✕</button>
+      </div>
+      <label>Your Name / How Poseidon Should Address You
+        <input id="sName" placeholder="Your name" />
+      </label>
+      <label>Intelligence Provider
+        <select id="sProvider">
+          <option value="gemini">Google Gemini (Free tier available)</option>
+          <option value="openai">OpenAI (ChatGPT)</option>
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="ollama">Ollama (Offline local model on your Mac)</option>
+        </select>
+      </label>
+      <label id="keyRow">API Key
+        <input id="sKey" type="password" placeholder="Paste your API key" />
+        <small id="keyHelp"></small>
+      </label>
+      <label>Model Override <small>(Leave blank for recommended default)</small>
+        <input id="sModel" placeholder="" />
+      </label>
+      <label id="ollamaRow" class="hidden">Ollama Endpoint URL
+        <input id="sOllama" placeholder="http://localhost:11434" />
+      </label>
+      <div class="row" style="justify-content: space-between;">
+        <div class="row">
+          <a class="ghost btnlink" href="/api/export">Export Backup</a>
+          <label class="ghost btnlink">Import Backup<input id="importFile" type="file" accept=".json" hidden /></label>
+        </div>
+        <button id="resetAllBtn" type="button" class="ghost" style="color:#ff8e8e; border-color:rgba(255,100,100,0.3);">Clear All</button>
+      </div>
+      <div class="row end">
+        <button id="closeSettingsBtn" type="button" class="ghost">Close</button>
+        <button id="saveSettings" type="button" class="primary">Save Configuration</button>
+      </div>
+      <p class="hint">All dream journals, confessions, and spiritual memories remain strictly on your local disk in <code>poseidon/data/</code>.</p>
+    </div>
+  </div>
+
+  <!-- ============ CHATS & CONVERSATIONS MODAL ============ -->
+  <div id="chatsModal" class="modal hidden">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-head">
+        <h2>Sanctum Storage &amp; Monthly Archives</h2>
+        <button id="cancelChats" type="button" class="ghost icon-btn">✕</button>
+      </div>
+
+      <div class="folder-banner">
+        <div class="folder-info">
+          <span class="folder-label">Mac Local Storage:</span>
+          <code id="folderPathText">/Users/h/Downloads/IGIS/poseidon/data</code>
+        </div>
+        <div class="folder-actions">
+          <button id="revealFinderBtn" type="button" class="primary action-btn" title="Open data folder in Finder">Data Folder</button>
+          <button id="revealConvosBtn" type="button" class="ghost action-btn" title="Open conversations folder in Finder">Chat Folders</button>
+          <button id="revealMonthlyBtn" type="button" class="ghost action-btn" title="Open monthly archives in Finder">Monthly Archives</button>
+          <button id="copyPathBtn" type="button" class="ghost action-btn">Copy Path</button>
+        </div>
+      </div>
+
+      <div class="subtabs-bar">
+        <button id="subTabChats" type="button" class="subtab-btn active">Chats By Folder</button>
+        <button id="subTabMonthly" type="button" class="subtab-btn">Monthly Transcripts &amp; Overviews</button>
+      </div>
+
+      <!-- CHATS BY FOLDER VIEW -->
+      <div id="chatsFolderView" class="subtab-view active">
+        <div class="conversations-head-row">
+          <h3>Active &amp; Archived Chat Folders</h3>
+          <button id="modalNewChatBtn" type="button" class="primary action-btn">+ New Chat</button>
+        </div>
+        <div id="conversationsList" class="conversations-list"></div>
+      </div>
+
+      <!-- MONTHLY ARCHIVE VIEW -->
+      <div id="monthlyArchiveView" class="subtab-view hidden">
+        <div class="conversations-head-row">
+          <h3>30-Day Monthly Transcripts &amp; Spiritual Overviews</h3>
+          <button id="syncMonthlyBtn" type="button" class="ghost action-btn">Sync Archives</button>
+        </div>
+        <div id="monthlyList" class="monthly-list"></div>
+      </div>
+
+      <div class="row end" style="margin-top:14px;">
+        <button id="closeChatsBtn" type="button" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MONTHLY OVERVIEW & TRANSCRIPT VIEWER MODAL ============ -->
+  <div id="monthlyViewerModal" class="modal hidden">
+    <div class="modal-card modal-card-large">
+      <div class="modal-head">
+        <h2 id="viewerModalTitle">Monthly Overview</h2>
+        <button id="closeMonthlyViewer" type="button" class="ghost icon-btn">✕</button>
+      </div>
+      <!-- Category selection tabs: switch between Overview, Dreams, Rants, Symbols, Transcript -->
+      <div class="viewer-category-tabs" id="viewerCategoryTabs">
+        <button class="viewer-cat-btn active" type="button" data-cat="overview" id="catBtnOverview">Full Overview</button>
+        <button class="viewer-cat-btn" type="button" data-cat="dreams" id="catBtnDreams">Monthly Dreams</button>
+        <button class="viewer-cat-btn" type="button" data-cat="rants" id="catBtnRants">Monthly Rants</button>
+        <button class="viewer-cat-btn" type="button" data-cat="symbols" id="catBtnSymbols">Monthly Symbols</button>
+        <button class="viewer-cat-btn" type="button" data-cat="transcript" id="catBtnTranscript">Master Transcript</button>
+      </div>
+
+      <div class="viewer-actions-bar">
+        <div class="viewer-cat-indicator" id="viewerCategoryIndicator">Showing: Full Spiritual Overview</div>
+        <div class="viewer-right-actions">
+          <button id="copyViewerContentBtn" type="button" class="ghost action-btn">Copy Content</button>
+          <button id="openViewerFolderBtn" type="button" class="primary action-btn">Open In Finder</button>
+        </div>
+      </div>
+      <div id="viewerModalBody" class="viewer-body"></div>
+      <div class="row end" style="margin-top:14px;">
+        <button id="closeViewerBtn" type="button" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SACRED CODEX & APPLE BOOKS STYLE CHAPTER READER MODAL ============ -->
+  <div id="codexReaderModal" class="modal hidden" data-view="reader">
+    <div class="modal-card modal-card-codex">
+
+      <!-- Top Bar: Shelf View Header -->
+      <div class="modal-head codex-modal-head codex-shelf-head">
+        <div>
+          <h2>SACRED CODEX · APPLE BOOKS SHELVES</h2>
+          <span class="sub codex-head-sub" style="font-size:12px; color:var(--text-muted);">30 Complete Books · Full-Book Chapter Summaries · Verbatim Text · How-To Action Protocols</span>
+        </div>
+        <div class="row" style="gap:8px;">
+          <button id="openAncientFolderBtn" type="button" class="ghost action-btn desktop-only-btn" title="Open /Users/h/Downloads/Ancient Books in Finder">Ancient Books Folder</button>
+          <button id="closeCodexReader" type="button" class="ghost icon-btn">✕</button>
+        </div>
+      </div>
+
+      <!-- Top Bar: Active Book Reader View Header -->
+      <div class="modal-head codex-modal-head codex-reader-head">
+        <div class="row" style="gap:10px; align-items:center; flex:1; min-width:0;">
+          <button id="codexBackToShelfBtn" type="button" class="ghost action-btn">← Library (30 Books)</button>
+          <button id="codexMobChapDrawerBtn" type="button" class="ghost action-btn mobile-only-btn" title="Jump to any chapter">Chapters ▾</button>
+          <div class="crh-book-info" style="min-width:0; overflow:hidden;">
+            <div id="crhBookTitle" class="crh-title" style="font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Book Title</div>
+            <div id="crhBookMeta" class="crh-meta" style="font-size:11.5px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Author · Chapter 1</div>
+          </div>
+        </div>
+        <div class="row" style="gap:8px; align-items:center; flex-shrink:0;">
+          <select id="codexBookStatusSelect" class="book-status-select" title="Change Apple Books Shelf">
+            <option value="reading">Reading Now</option>
+            <option value="completed">Completed Book</option>
+            <option value="want_to_read">Want to Read</option>
+          </select>
+          <div class="art-appearance codex-head-appearance">
+            <select id="readerFontFamilySelect" class="reader-font-select" title="Choose Reading Typeface">
+              <option value="serif">Book Serif</option>
+              <option value="sans">Clean Sans</option>
+              <option value="mono">Codex Mono</option>
+              <option value="antique">Ancient Script</option>
+            </select>
+            <div class="art-font-stepper">
+              <button type="button" class="art-font-btn font-dec-btn" id="readerFontDecBtn" title="Smaller text (tap to shrink 10%)">A-</button>
+              <span class="art-font-pct" id="readerFontPct">100%</span>
+              <button type="button" class="art-font-btn font-inc-btn" id="readerFontIncBtn" title="Larger text (tap to enlarge 10%)">A+</button>
+            </div>
+            <div class="art-themes-row">
+              <button type="button" class="art-theme-dot theme-abyss active" data-rtheme="abyss" title="Abyss (Dark Sanctuary)"></button>
+              <button type="button" class="art-theme-dot theme-sepia" data-rtheme="sepia" title="Sepia (Ancient Parchment)"></button>
+              <button type="button" class="art-theme-dot theme-paper" data-rtheme="paper" title="Paper (Clean Light)"></button>
+              <button type="button" class="art-theme-dot theme-onyx" data-rtheme="onyx" title="Onyx (Midnight OLED)"></button>
+            </div>
+          </div>
+          <button id="codexStreamPdfBtn" type="button" class="ghost action-btn" title="Open Full Original PDF Book" style="display:none;">Full PDF</button>
+          <button id="closeCodexReader2" type="button" class="ghost icon-btn">✕</button>
+        </div>
+      </div>
+
+      <!-- VIEW 1: SHELF VIEW (30-Book Library, Shelves, Categories, Search Grid) -->
+      <div class="codex-shelf-view-body" id="codexShelfViewBody">
+        <div class="codex-top-shelves-bar">
+          <div id="codexStatusTabs" class="codex-status-tabs">
+            <button class="codex-status-btn active" type="button" data-status="ALL">All Books (30)</button>
+            <button class="codex-status-btn" type="button" data-status="reading">Reading Now</button>
+            <button class="codex-status-btn" type="button" data-status="completed">Completed</button>
+            <button class="codex-status-btn" type="button" data-status="want_to_read">Want to Read</button>
+          </div>
+          <div id="codexCategoryTabs" class="codex-cat-tabs">
+            <button class="codex-cat-btn active" type="button" data-cat="ALL">All Categories</button>
+            <button class="codex-cat-btn" type="button" data-cat="Psychic & Entities">Psychic &amp; Entities</button>
+            <button class="codex-cat-btn" type="button" data-cat="Personal Magnetism & Mind">Magnetism &amp; Mind</button>
+            <button class="codex-cat-btn" type="button" data-cat="Gnostic & Sacred Relics">Gnostic &amp; Sacred</button>
+            <button class="codex-cat-btn" type="button" data-cat="Alchemy & Ceremonial Magic">Alchemy &amp; Magic</button>
+            <button class="codex-cat-btn" type="button" data-cat="Sex Magic & Vital Force">Sex Magic &amp; Jing</button>
+            <button class="codex-cat-btn" type="button" data-cat="Human Nature & Strategy">Strategy &amp; Mind Control</button>
+            <button class="codex-cat-btn" type="button" data-cat="Healing & Sound">Healing &amp; Sound</button>
+          </div>
+          <div class="codex-search-wrap" style="margin-top:6px;">
+            <input id="codexBookSearch" type="search" placeholder="Search 30 books, authors, or concepts..." />
+          </div>
+        </div>
+        <div id="codexShelfGrid" class="codex-shelf-grid"></div>
+      </div>
+
+      <!-- VIEW 2: READER VIEW (Table of Contents Sidebar Left + Dedicated Reading Chamber Right) -->
+      <div class="codex-reader-view-body" id="codexReaderViewBody">
+        <!-- Left Sidebar: Chapter List (Table of Contents) -->
+        <aside class="codex-chapters-sidebar" id="codexChaptersSidebar">
+          <div class="ccs-header">
+            <span class="ccs-title">TABLE OF CONTENTS</span>
+            <span id="ccsChapCount" class="ccs-count">Chapters</span>
+          </div>
+          <div class="ccs-search-wrap">
+            <input id="codexChapterSearch" type="search" placeholder="Filter chapters..." />
+          </div>
+          <div id="codexChapterList" class="codex-chapter-list"></div>
+        </aside>
+
+        <!-- Right Main Area: Dedicated Reading Chamber -->
+        <section class="codex-main-reader" id="codexMainReader">
+          <!-- Populated dynamically by app.js -->
+        </section>
+      </div>
+
+      <!-- Mobile Chapter Picker Bottom Drawer -->
+      <div id="codexMobileChaptersDrawer" class="codex-mob-drawer hidden">
+        <div class="cmd-head">
+          <span>Jump to Chapter</span>
+          <button type="button" id="closeMobChaptersDrawerBtn" class="ghost icon-btn">✕</button>
+        </div>
+        <div id="codexMobileChapterList" class="codex-mob-chapter-list"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ MOBILE ACCESS & WORLDWIDE TUNNEL MODAL ============ -->
+  <div id="mobileModal" class="modal hidden">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-head">
+        <div>
+          <h2>CONNECT POSEIDON TO YOUR PHONE</h2>
+          <span class="sub" style="font-size:12px; color:var(--text-muted);">Access your full Sanctum, Dreams, and 30-Relic Codex from anywhere in the bush or city</span>
+        </div>
+        <button id="closeMobileModal" type="button" class="ghost icon-btn">✕</button>
+      </div>
+
+      <div class="mobile-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:12px 0;">
+        <!-- Worldwide 4G/5G Tunnel Card -->
+        <div class="card" style="border-left:4px solid var(--gold);">
+          <div class="date-badge" style="color:var(--gold);">MODE 1: AWAY FROM MAC (4G / 5G / ANYWHERE IN ZIMBABWE)</div>
+          <h4 style="margin:6px 0;">Worldwide Secure Tunnel</h4>
+          <p style="font-size:12px; color:var(--text-muted); line-height:1.45;">
+            Encrypted Cloudflare HTTPS link straight to your Mac. Works when you are miles away in the bush or on mobile data, as long as your Mac is awake.
+          </p>
+          <div style="margin:10px 0;">
+            <code id="mobileTunnelUrl" style="display:block; padding:8px 10px; background:rgba(212,175,55,0.1); border:1px solid var(--gold-border); border-radius:6px; color:#f3e5ab; font-size:12px; word-break:break-all;">Starting tunnel...</code>
+          </div>
+          <div id="mobileLinkMode" style="font-size:11.5px; color:var(--text-muted); margin-top:-2px;"></div>
+          <div id="mobileTunnelQrWrap" style="text-align:center; margin:10px 0;"></div>
+          <div class="row" style="gap:8px;">
+            <button id="copyTunnelBtn" type="button" class="primary action-btn">Copy Worldwide Link</button>
+            <button id="refreshTunnelBtn" type="button" class="ghost action-btn">Refresh Tunnel</button>
+          </div>
+
+          <details id="permanentLinkPanel" style="margin-top:12px; border-top:1px solid var(--line); padding-top:10px;">
+            <summary style="cursor:pointer; color:var(--gold); font-size:13px; font-weight:600;">Permanent Link (never changes)</summary>
+            <ol style="font-size:12px; color:var(--text-muted); line-height:1.55; padding-left:18px; margin:8px 0;">
+              <li>Sign up free at <a href="https://dashboard.ngrok.com/signup" target="_blank" rel="noopener" style="color:var(--gold);">dashboard.ngrok.com/signup</a> (Google sign-in works).</li>
+              <li>Open <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener" style="color:var(--gold);">Your Authtoken</a> and copy it.</li>
+              <li>Paste it below and press Save. Your free permanent address is claimed automatically.</li>
+            </ol>
+            <input id="ngrokTokenInput" type="password" autocomplete="off" placeholder="Paste ngrok authtoken" style="width:100%; box-sizing:border-box; margin-bottom:6px;" />
+            <input id="ngrokDomainInput" type="text" autocomplete="off" placeholder="Optional: your ngrok domain (e.g. name.ngrok-free.app)" style="width:100%; box-sizing:border-box; margin-bottom:8px;" />
+            <div class="row" style="gap:8px;">
+              <button id="savePermanentBtn" type="button" class="primary action-btn">Save Permanent Link</button>
+              <button id="removePermanentBtn" type="button" class="ghost action-btn hidden">Remove</button>
+            </div>
+            <div id="permanentStatus" style="font-size:12px; margin-top:8px; color:var(--text-muted);"></div>
+          </details>
+        </div>
+
+        <!-- Same Wi-Fi / Hotspot Card -->
+        <div class="card" style="border-left:4px solid var(--teal);">
+          <div class="date-badge" style="color:var(--teal);">MODE 2: SAME WI-FI OR PHONE HOTSPOT</div>
+          <h4 style="margin:6px 0;">Local Direct Link</h4>
+          <p style="font-size:12px; color:var(--text-muted); line-height:1.45;">
+            Instant local connection when your phone and Mac are on the same Wi-Fi network or connected to your phone's personal hotspot.
+          </p>
+          <div style="margin:10px 0;">
+            <code id="mobileLanUrl" style="display:block; padding:8px 10px; background:rgba(28,212,182,0.08); border:1px solid var(--teal-border); border-radius:6px; color:var(--teal); font-size:12px; word-break:break-all;">http://192.168.1.48:7777</code>
+          </div>
+          <div id="mobileLanQrWrap" style="text-align:center; margin:10px 0;"></div>
+          <div class="row" style="gap:8px;">
+            <button id="copyLanBtn" type="button" class="ghost action-btn">Copy Local Wi-Fi Link</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="border-left:4px solid #a855f7; margin:12px 0; background:rgba(18,12,34,0.85);">
+        <div class="date-badge" style="color:#c084fc;">MODE 3: AWAY FROM PHONE &amp; MAC (MAC OFF / ANY DEVICE / PORTABLE POCKET SANCTUM)</div>
+        <h4 style="margin:6px 0;">100% Autonomous Brain + Single-File Portable Sanctum</h4>
+        <p style="font-size:12px; color:var(--text-muted); line-height:1.45; margin-bottom:10px;">
+          <strong>1. Automatic Device Vault:</strong> Every device that opens Poseidon automatically caches all 30 Ancient Relics (101 chapters), your Brain, Dreams, and AI engine locally. Even if your Mac is completely turned off, Poseidon keeps speaking and reading chapters directly from that device, then auto-syncs back when your Mac wakes up.<br/>
+          <strong>2. Portable Single-File Sanctum:</strong> Download a single self-contained <code>Poseidon-Pocket-Sanctum.html</code> file and save it to your iCloud Drive, Google Drive, Email, or USB. You can open that single file on <em>any</em> computer, tablet, or borrowed device in the world when you have neither your Mac nor your phone.
+        </p>
+        <div class="row" style="gap:10px;">
+          <a href="/api/mobile/pocket-sanctum" download="Poseidon-Pocket-Sanctum.html" class="primary action-btn" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">Download Portable Pocket Sanctum (.html)</a>
+        </div>
+      </div>
+
+      <div class="card" style="background:rgba(8,18,28,0.85); border:1px solid var(--border); padding:12px 15px;">
+        <div class="book-subtag">HOW TO INSTALL AS A NATIVE APP ON YOUR PHONE, TABLET, OR ANY COMPUTER:</div>
+        <ol class="list" style="font-size:12.5px; color:var(--text-main); margin:6px 0 0; padding-left:18px; line-height:1.55;">
+          <li>Scan the QR code above with your camera (or open the Worldwide Link on any phone, tablet, or computer browser).</li>
+          <li>Tap <strong>Share &rarr; "Add to Home Screen"</strong> (iPhone/iPad), <strong>Menu &rarr; "Install App"</strong> (Android), or the <strong>Install icon in the address bar</strong> (Chrome/Edge/Brave on any computer).</li>
+          <li>Poseidon installs with his golden trident crest, works even when your Mac is turned off, and syncs all bookmarks and conversations automatically.</li>
+        </ol>
+      </div>
+
+      <div class="row end" style="margin-top:12px;">
+        <button id="closeMobileBtnBottom" type="button" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ADD TO HOME SCREEN / PWA INSTALL PROMPT ============ -->
+  <div id="pwaInstallBanner" class="pwa-install-banner hidden">
+    <div class="pwa-banner-left">
+      <img src="./apple-touch-icon.png" class="pwa-banner-icon" alt="Poseidon" />
+      <div class="pwa-banner-text">
+        <strong class="pwa-banner-title">Poseidon</strong>
+        <span class="pwa-banner-sub">Install app with crest for offline reading and sync</span>
+      </div>
+    </div>
+    <div class="pwa-banner-right">
+      <button id="pwaInstallActionBtn" type="button" class="pwa-install-btn">Add to Home Screen</button>
+      <button id="pwaInstallDismissBtn" type="button" class="pwa-dismiss-btn" aria-label="Dismiss">✕</button>
+    </div>
+  </div>
+
+  <!-- iOS / Mobile Install Modal Guide -->
+  <div id="pwaInstallModal" class="modal-backdrop hidden">
+    <div class="modal card pwa-guide-card">
+      <div class="modal-head">
+        <div class="row align-center" style="gap:10px;">
+          <img src="./apple-touch-icon.png" style="width:42px; height:42px; border-radius:10px; border:1px solid #1cd4b6; box-shadow:0 0 14px rgba(28,212,182,0.35);" alt="Poseidon Logo" />
+          <div>
+            <h3 style="margin:0; font-family:'Cinzel',serif; font-size:18px; color:var(--text-main);">Install Poseidon</h3>
+            <span style="font-size:11.5px; color:#1cd4b6;">Golden Crest &bull; Offline Codex &bull; Device Auto-Sync</span>
+          </div>
+        </div>
+        <button id="closePwaGuideBtn" type="button" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="pwa-guide-body">
+        <p style="font-size:13px; color:var(--text-main); margin-bottom:14px; line-height:1.5;">
+          Install Poseidon as a standalone app on your phone. You will get the golden trident app icon, full offline access to all 30 books even when your Mac is turned off, and seamless two-way syncing when your Mac wakes up.
+        </p>
+
+        <div class="pwa-step-card">
+          <div class="pwa-step-num">1</div>
+          <div class="pwa-step-info">
+            <strong>Tap the Share Button</strong>
+            <p>At the bottom of Safari, tap the <strong>Share</strong> icon (the square with an arrow pointing up).</p>
+          </div>
+        </div>
+
+        <div class="pwa-step-card">
+          <div class="pwa-step-num">2</div>
+          <div class="pwa-step-info">
+            <strong>Choose "Add to Home Screen"</strong>
+            <p>Scroll down the share options and tap <strong>"Add to Home Screen"</strong>.</p>
+          </div>
+        </div>
+
+        <div class="pwa-step-card">
+          <div class="pwa-step-num">3</div>
+          <div class="pwa-step-info">
+            <strong>Confirm "Poseidon" and Tap "Add"</strong>
+            <p>The name defaults to <strong>Poseidon</strong> with the golden crest. Tap <strong>Add</strong> in the top right.</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="pwaGuideDoneBtn" type="button" class="primary action-btn">Got It</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
