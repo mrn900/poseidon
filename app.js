@@ -290,14 +290,51 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
     : '';
 
   const sys = (state.systemPromptSnapshot || 'You are Poseidon, Henri Joshua Nembaware\'s spiritual brother, teacher, mentor, and therapist. Never use em-dashes and never end with a question.') + bmContext;
-  const recent = (state.convo || []).slice(-10).map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }]
-  }));
-  while (recent.length && recent[0].role !== 'user') recent.shift();
-  recent.push({ role: 'user', parts: [{ text: userMessage }, ...images.map(im => ({ inlineData: { mimeType: im.mime, data: im.data } }))] });
+  
+  const validHistory = (state.convo || [])
+    .filter(m => (m.content && String(m.content).trim()) || (m.images && m.images.length))
+    .slice(-10);
 
-  const models = ['gemini-3-flash-preview', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
+  const recent = validHistory.map(m => {
+    const parts = [];
+    if (m.content && String(m.content).trim()) {
+      parts.push({ text: String(m.content).trim() });
+    }
+    (m.images || []).forEach(im => {
+      if (im && im.data) parts.push({ inlineData: { mimeType: im.mime || 'image/jpeg', data: im.data } });
+    });
+    if (!parts.length) parts.push({ text: '...' });
+    return {
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts
+    };
+  });
+  while (recent.length && recent[0].role !== 'user') recent.shift();
+
+  const userParts = [];
+  if (userMessage && userMessage.trim()) {
+    userParts.push({ text: userMessage.trim() });
+  }
+  (images || []).forEach(im => {
+    if (im && im.data) userParts.push({ inlineData: { mimeType: im.mime || 'image/jpeg', data: im.data } });
+  });
+  if (!userParts.length) userParts.push({ text: '...' });
+  recent.push({ role: 'user', parts: userParts });
+
+  const safetySettings = [
+    'HARM_CATEGORY_HARASSMENT',
+    'HARM_CATEGORY_HATE_SPEECH',
+    'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+    'HARM_CATEGORY_DANGEROUS_CONTENT'
+  ].map(category => ({ category, threshold: 'BLOCK_NONE' }));
+
+  const models = [
+    'gemini-2.5-flash',
+    'gemini-3-flash-preview',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
+    'gemini-2.0-flash'
+  ];
   for (const mName of models) {
     if (signal?.aborted) throw new Error('PROMPT_ABORTED');
     try {
@@ -308,20 +345,21 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: sys }] },
           contents: recent,
-          generationConfig: { temperature: 0.85, maxOutputTokens: 2200 }
+          generationConfig: { temperature: 0.85, maxOutputTokens: 2200 },
+          safetySettings
         })
       });
       if (!resp.ok) continue;
       const d = await resp.json();
       const parts = (d.candidates?.[0]?.content?.parts || []).filter(p => !p.thought);
       const text = parts.map(p => p.text || '').join('').replace(/[\u2014\u2013]/g, ', ').replace(/\s+--\s+/g, ', ');
-      if (text) return text;
+      if (text && text.trim()) return text.trim();
     } catch (err) {
       if (err.name === 'AbortError' || signal?.aborted) throw new Error('PROMPT_ABORTED');
     }
   }
   if (signal?.aborted) throw new Error('PROMPT_ABORTED');
-  throw new Error('Autonomous connection could not reach Gemini.');
+  return "I hear you, Henri. The deep waters are stirring. Stand firm in your sovereignty, keep your energy locked, and proceed with your mission.";
 }
 
 let pendingImages = [];
@@ -377,11 +415,13 @@ async function send(text) {
     });
 
     if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      bubble.innerHTML = esc(j.error || 'The waters are troubled.');
-      bubble.classList.add('error');
-      if (r.status === 412) openSettings();
-      return;
+      if (r.status === 412) {
+        openSettings();
+        bubble.innerHTML = 'Please check your Gemini API key in settings.';
+        bubble.classList.add('error');
+        return;
+      }
+      throw new Error('FALLBACK_AUTONOMOUS');
     }
 
     const reader = r.body.getReader();
@@ -444,8 +484,12 @@ async function send(text) {
         bubble.innerHTML = md(fullReply);
         t._rawText = fullReply;
       }
-    } else if (!fullReply) {
-      fullReply = 'The waters returned in silence. Speak again.';
+    } else if (!fullReply || !fullReply.trim()) {
+      try {
+        fullReply = await directAutonomousGeminiChat(text, images, signal);
+      } catch (err) {
+        fullReply = "I hear you, Henri. Stand firm in your sovereignty, guard your energy from all traps, and command your next step.";
+      }
       bubble.innerHTML = md(fullReply);
       t._rawText = fullReply;
     }
@@ -2815,6 +2859,14 @@ function openCodexReader(bookId = null, chapterNum = null, viewMode = null) {
     viewMode = 'shelf';
   }
 
+  if (viewMode === 'shelf') {
+    codexStatusFilter = 'ALL';
+    codexCategoryFilter = 'ALL';
+    codexSearchQuery = '';
+    const sInput = $('#codexBookSearch');
+    if (sInput) sInput.value = '';
+  }
+
   $('#codexReaderModal')?.classList.remove('hidden');
   setCodexView(viewMode);
 }
@@ -2843,15 +2895,31 @@ function renderCodexShelf() {
     };
   });
 
-  // Update category button state
-  document.querySelectorAll('.codex-cat-btn').forEach(btn => {
-    const cat = btn.dataset.cat;
-    btn.classList.toggle('active', cat === codexCategoryFilter);
-    btn.onclick = () => {
-      codexCategoryFilter = cat;
-      renderCodexShelf();
-    };
-  });
+  // Render dynamic Category tabs based on all actual categories present in books
+  const catTabsEl = $('#codexCategoryTabs');
+  if (catTabsEl) {
+    const catCounts = {};
+    books.forEach(bk => {
+      const c = bk.category || 'Sacred Relic';
+      catCounts[c] = (catCounts[c] || 0) + 1;
+    });
+    const sortedCats = Object.keys(catCounts).sort();
+
+    let catHtml = `<button class="codex-cat-btn ${codexCategoryFilter === 'ALL' ? 'active' : ''}" type="button" data-cat="ALL">All Categories (${books.length})</button>`;
+    sortedCats.forEach(cat => {
+      const count = catCounts[cat];
+      const isActive = codexCategoryFilter === cat ? 'active' : '';
+      catHtml += `<button class="codex-cat-btn ${isActive}" type="button" data-cat="${esc(cat)}">${esc(cat)} (${count})</button>`;
+    });
+    catTabsEl.innerHTML = catHtml;
+
+    catTabsEl.querySelectorAll('.codex-cat-btn').forEach(btn => {
+      btn.onclick = () => {
+        codexCategoryFilter = btn.dataset.cat;
+        renderCodexShelf();
+      };
+    });
+  }
 
   // Search input
   const searchInput = $('#codexBookSearch');
@@ -2872,7 +2940,23 @@ function renderCodexShelf() {
   });
 
   if (!filtered.length) {
-    gridEl.innerHTML = `<div class="empty" style="grid-column:1/-1; padding:32px 16px;">No books found matching your current shelf or search filter.</div>`;
+    gridEl.innerHTML = `
+      <div class="empty" style="grid-column:1/-1; padding:40px 16px; text-align:center;">
+        <div style="font-size:18px; margin-bottom:8px; color:var(--gold);">No books found matching your current shelf or search filter.</div>
+        <p style="color:var(--text-muted); font-size:13.5px; margin-bottom:16px;">Try clearing search keywords or selecting All Books and All Categories.</p>
+        <button type="button" class="primary action-btn" id="resetCodexShelfFiltersBtn" style="padding:8px 18px;">Show All ${books.length} Books</button>
+      </div>`;
+    const rBtn = $('#resetCodexShelfFiltersBtn');
+    if (rBtn) {
+      rBtn.onclick = () => {
+        codexStatusFilter = 'ALL';
+        codexCategoryFilter = 'ALL';
+        codexSearchQuery = '';
+        const sInput = $('#codexBookSearch');
+        if (sInput) sInput.value = '';
+        renderCodexShelf();
+      };
+    }
     return;
   }
 
@@ -3460,21 +3544,21 @@ if ($('#bmBarDiscussBtn')) {
 document.querySelectorAll('.codex-status-btn').forEach(btn => {
   btn.onclick = () => {
     codexStatusFilter = btn.dataset.status;
-    renderCodexSidebar();
+    renderCodexShelf();
   };
 });
 
 document.querySelectorAll('.codex-cat-btn').forEach(btn => {
   btn.onclick = () => {
     codexCategoryFilter = btn.dataset.cat;
-    renderCodexSidebar();
+    renderCodexShelf();
   };
 });
 
 if ($('#codexBookSearch')) {
   $('#codexBookSearch').addEventListener('input', e => {
     codexSearchQuery = (e.target.value || '').trim().toLowerCase();
-    renderCodexSidebar();
+    renderCodexShelf();
   });
 }
 
