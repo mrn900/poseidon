@@ -725,8 +725,10 @@ button, .action-btn, .pill-btn, .chip-btn, .foot-btn, .primary, .ghost {
   gap: 14px;
 }
 .apple-book-card {
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 220px !important;
+  box-sizing: border-box !important;
 }
 .apple-book-title {
   font-size: 15px;
@@ -890,8 +892,10 @@ button, .action-btn, .pill-btn, .chip-btn, .foot-btn, .primary, .ghost {
 .codex-shelf-view-body {
   display: flex !important;
   flex-direction: column !important;
-  flex: 1 !important;
+  flex: 1 1 auto !important;
   min-height: 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
   overflow: hidden !important;
 }
 
@@ -901,7 +905,10 @@ button, .action-btn, .pill-btn, .chip-btn, .foot-btn, .primary, .ghost {
   gap: 16px !important;
   padding: 16px 20px 40px !important;
   overflow-y: auto !important;
-  flex: 1 !important;
+  flex: 1 1 auto !important;
+  min-height: 240px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 /* Reader View Body (Desktop: Table of Contents Left + Reading Chamber Right) */

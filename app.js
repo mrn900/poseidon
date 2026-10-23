@@ -1390,6 +1390,7 @@ function renderBrain() {
   syncLiveBookmarkBanner();
   try { renderMind(); } catch (e) { console.error('renderMind error:', e); }
   try { updateLastInChatStatus(); } catch {}
+  try { renderCodexShelf(); } catch (e) { console.error('renderCodexShelf error:', e); }
 
   // Update badge count
   const bookCount = b.books?.length || 0;
@@ -1473,16 +1474,15 @@ function renderBrain() {
       { id: 'want_to_read', label: 'Want to Read', count: wantCount }
     ];
 
-    const categories = [
-      { id: 'ALL', label: `All Categories` },
-      { id: 'Psychic & Entities', label: 'Psychic & Entities' },
-      { id: 'Personal Magnetism & Mind', label: 'Magnetism & Mind' },
-      { id: 'Gnostic & Sacred Relics', label: 'Gnostic & Sacred' },
-      { id: 'Alchemy & Ceremonial Magic', label: 'Alchemy & Magic' },
-      { id: 'Sex Magic & Vital Force', label: 'Sex Magic & Jing' },
-      { id: 'Human Nature & Strategy', label: 'Strategy & Human Nature' },
-      { id: 'Healing & Sound', label: 'Healing & Sound' }
-    ];
+    // Dynamic category pills for Deep Sanctuary library view too
+    const catCounts = {};
+    allBooks.forEach(bk => {
+      const c = (bk.category || 'Sacred Relic').trim();
+      catCounts[c] = (catCounts[c] || 0) + 1;
+    });
+    const categories = [{ id: 'ALL', label: 'All Categories' }].concat(
+      Object.keys(catCounts).sort().map(cat => ({ id: cat, label: `${cat} (${catCounts[cat]})` }))
+    );
 
     libHtml += `
       <div class="section-title">Apple Books Library &amp; Shelves (${books.length})</div>
@@ -2840,6 +2840,8 @@ function setCodexView(viewMode = 'reader') {
   const modal = $('#codexReaderModal');
   if (modal) modal.dataset.view = viewMode;
   if (viewMode === 'shelf') {
+    if (!codexStatusFilter) codexStatusFilter = 'ALL';
+    if (!codexCategoryFilter) codexCategoryFilter = 'ALL';
     renderCodexShelf();
   } else {
     renderCodexReaderChamber();
@@ -2881,9 +2883,12 @@ function renderCodexShelf() {
   const completedCount = books.filter(bk => getBookReadingStatus(bk) === 'completed').length;
   const wantCount = books.filter(bk => getBookReadingStatus(bk) === 'want_to_read').length;
 
+  if (!codexStatusFilter) codexStatusFilter = 'ALL';
+  if (!codexCategoryFilter) codexCategoryFilter = 'ALL';
+
   // Update Apple Books Status Shelf tab counts
   document.querySelectorAll('.codex-status-btn').forEach(btn => {
-    const st = btn.dataset.status;
+    const st = btn.dataset.status || 'ALL';
     btn.classList.toggle('active', st === codexStatusFilter);
     if (st === 'ALL') btn.textContent = `All Books (${books.length})`;
     else if (st === 'reading') btn.textContent = `Reading Now (${readingCount})`;
@@ -2900,44 +2905,59 @@ function renderCodexShelf() {
   if (catTabsEl) {
     const catCounts = {};
     books.forEach(bk => {
-      const c = bk.category || 'Sacred Relic';
+      const c = (bk.category || 'Sacred Relic').trim();
       catCounts[c] = (catCounts[c] || 0) + 1;
     });
     const sortedCats = Object.keys(catCounts).sort();
 
-    let catHtml = `<button class="codex-cat-btn ${codexCategoryFilter === 'ALL' ? 'active' : ''}" type="button" data-cat="ALL">All Categories (${books.length})</button>`;
+    const isAllCatActive = !codexCategoryFilter || codexCategoryFilter === 'ALL';
+    let catHtml = `<button class="codex-cat-btn ${isAllCatActive ? 'active' : ''}" type="button" data-cat="ALL">All Categories (${books.length})</button>`;
     sortedCats.forEach(cat => {
       const count = catCounts[cat];
-      const isActive = codexCategoryFilter === cat ? 'active' : '';
+      const isActive = !isAllCatActive && codexCategoryFilter.trim().toLowerCase() === cat.trim().toLowerCase() ? 'active' : '';
       catHtml += `<button class="codex-cat-btn ${isActive}" type="button" data-cat="${esc(cat)}">${esc(cat)} (${count})</button>`;
     });
     catTabsEl.innerHTML = catHtml;
 
     catTabsEl.querySelectorAll('.codex-cat-btn').forEach(btn => {
       btn.onclick = () => {
-        codexCategoryFilter = btn.dataset.cat;
+        codexCategoryFilter = btn.dataset.cat || 'ALL';
         renderCodexShelf();
       };
     });
   }
 
-  // Search input
+  // Search input handling
   const searchInput = $('#codexBookSearch');
   if (searchInput && !searchInput.dataset.wired) {
     searchInput.dataset.wired = 'true';
     searchInput.oninput = () => {
-      codexSearchQuery = searchInput.value.trim().toLowerCase();
+      codexSearchQuery = (searchInput.value || '').trim().toLowerCase();
       renderCodexShelf();
     };
   }
 
-  const filtered = books.filter(bk => {
-    if (codexStatusFilter !== 'ALL' && getBookReadingStatus(bk) !== codexStatusFilter) return false;
-    if (codexCategoryFilter !== 'ALL' && (bk.category || '') !== codexCategoryFilter) return false;
-    if (!codexSearchQuery) return true;
-    const hay = `${bk.title || ''} ${bk.author || ''} ${bk.category || ''} ${bk.summary || ''} ${(bk.chapters || []).map(c => c.title).join(' ')}`.toLowerCase();
-    return hay.includes(codexSearchQuery);
-  });
+  const query = (searchInput ? searchInput.value : (codexSearchQuery || '')).trim().toLowerCase();
+  const currentCat = (codexCategoryFilter || 'ALL').trim();
+  const currentStatus = (codexStatusFilter || 'ALL').trim();
+  const isAllCat = currentCat.toUpperCase() === 'ALL';
+  const isAllStat = currentStatus.toUpperCase() === 'ALL';
+
+  let filtered = books;
+  if (!isAllCat || !isAllStat || query) {
+    filtered = books.filter(bk => {
+      if (!bk) return false;
+      if (!isAllStat && getBookReadingStatus(bk) !== currentStatus) return false;
+      if (!isAllCat) {
+        const bkCat = String(bk.category || 'Sacred Relic').trim().toLowerCase();
+        if (bkCat !== currentCat.toLowerCase()) return false;
+      }
+      if (!query) return true;
+      const chTitles = (bk.chapters || []).map(c => (c && c.title) || '').join(' ');
+      const hay = `${bk.title || ''} ${bk.author || ''} ${bk.category || ''} ${bk.summary || ''} ${chTitles}`.toLowerCase();
+      return hay.includes(query);
+    });
+  }
 
   if (!filtered.length) {
     gridEl.innerHTML = `
@@ -2952,49 +2972,59 @@ function renderCodexShelf() {
         codexStatusFilter = 'ALL';
         codexCategoryFilter = 'ALL';
         codexSearchQuery = '';
-        const sInput = $('#codexBookSearch');
-        if (sInput) sInput.value = '';
+        if (searchInput) searchInput.value = '';
         renderCodexShelf();
       };
     }
     return;
   }
 
-  gridEl.innerHTML = filtered.map(bk => {
-    const isLiveBm = activeBm && activeBm.bookId === bk.id;
-    const totalCh = (bk.chapters || []).length || 1;
-    const doneCh = (bk.completedChapters || []).length;
-    const bmCh = bk.bookmarkedChapter || 1;
-    const rStatus = getBookReadingStatus(bk);
-    const pct = rStatus === 'completed' ? 100 : Math.min(100, Math.round((doneCh / totalCh) * 100));
-    const statusLabel = rStatus === 'completed' ? 'COMPLETED' : rStatus === 'reading' ? 'READING NOW' : 'WANT TO READ';
+  const cardsHtml = filtered.map(bk => {
+    try {
+      if (!bk) return '';
+      const isLiveBm = activeBm && activeBm.bookId === bk.id;
+      const chaps = Array.isArray(bk.chapters) ? bk.chapters : [];
+      const totalCh = chaps.length || 1;
+      const doneArr = Array.isArray(bk.completedChapters) ? bk.completedChapters : [];
+      const doneCh = doneArr.length;
+      const bmCh = Number(bk.bookmarkedChapter || 1);
+      const rStatus = getBookReadingStatus(bk);
+      const pct = rStatus === 'completed' ? 100 : Math.min(100, Math.round((doneCh / totalCh) * 100));
+      const statusLabel = rStatus === 'completed' ? 'COMPLETED' : rStatus === 'reading' ? 'READING NOW' : 'WANT TO READ';
+      const cleanSummary = String(bk.summary || '').slice(0, 180);
 
-    return `
-      <div class="card apple-book-card ${isLiveBm ? 'active-bm-book' : ''}" id="shelf-book-${bk.id}">
-        <div class="book-card-meta-row">
-          <span class="date-badge">${esc(bk.category || 'Sacred Relic')}${bk.totalPages ? ` · ${bk.totalPages}p` : ''}</span>
-          <span class="apple-status-badge status-${rStatus}">${statusLabel} · ${pct}%</span>
+      return `
+        <div class="card apple-book-card ${isLiveBm ? 'active-bm-book' : ''}" id="shelf-book-${esc(bk.id)}">
+          <div class="book-card-meta-row">
+            <span class="date-badge">${esc(bk.category || 'Sacred Relic')}${bk.totalPages ? ` · ${bk.totalPages}p` : ''}</span>
+            <span class="apple-status-badge status-${esc(rStatus)}">${statusLabel} · ${pct}%</span>
+          </div>
+          <h4 class="apple-book-title">${esc(bk.title || 'Sacred Relic')}</h4>
+          <div class="apple-book-author">${esc(bk.author || 'Ancient Tradition')}${bk.year ? ` (${esc(bk.year)})` : ''}</div>
+          <div class="apple-progress-track" style="margin:6px 0 10px;">
+            <div class="apple-progress-fill" style="width:${rStatus === 'completed' ? 100 : Math.max(doneCh ? 8 : 0, pct)}%;"></div>
+          </div>
+          <p class="book-summary" style="margin-bottom:12px;">${esc(cleanSummary)}${String(bk.summary || '').length > 180 ? '...' : ''}</p>
+          <div class="book-card-footer-actions" style="margin-top:auto;">
+            <button type="button" class="primary action-btn open-shelf-read-btn" data-book="${esc(bk.id)}" data-chap="${bmCh}">
+              ${rStatus === 'reading' ? `Continue: Ch.${bmCh} →` : `Read Book (${totalCh} Ch)`}
+            </button>
+            <select class="book-status-select shelf-status-select" data-book="${esc(bk.id)}" title="Move to another shelf">
+              <option value="reading" ${rStatus === 'reading' ? 'selected' : ''}>Shelf: Reading Now</option>
+              <option value="completed" ${rStatus === 'completed' ? 'selected' : ''}>Shelf: Completed</option>
+              <option value="want_to_read" ${rStatus === 'want_to_read' ? 'selected' : ''}>Shelf: Want to Read</option>
+            </select>
+            ${bk.pdfFile ? `<button type="button" class="ghost action-btn shelf-pdf-btn" data-book="${esc(bk.id)}" title="Open original PDF">PDF</button>` : ''}
+          </div>
         </div>
-        <h4 class="apple-book-title">${esc(bk.title)}</h4>
-        <div class="apple-book-author">${esc(bk.author || 'Ancient Tradition')}${bk.year ? ` (${esc(bk.year)})` : ''}</div>
-        <div class="apple-progress-track" style="margin:6px 0 10px;">
-          <div class="apple-progress-fill" style="width:${rStatus === 'completed' ? 100 : Math.max(doneCh ? 8 : 0, pct)}%;"></div>
-        </div>
-        <p class="book-summary" style="margin-bottom:12px;">${esc(String(bk.summary || '').slice(0, 180))}${String(bk.summary || '').length > 180 ? '...' : ''}</p>
-        <div class="book-card-footer-actions" style="margin-top:auto;">
-          <button type="button" class="primary action-btn open-shelf-read-btn" data-book="${esc(bk.id)}" data-chap="${bmCh}">
-            ${rStatus === 'reading' ? `Continue: Ch.${bmCh} →` : `Read Book (${totalCh} Ch)`}
-          </button>
-          <select class="book-status-select shelf-status-select" data-book="${esc(bk.id)}" title="Move to another shelf">
-            <option value="reading" ${rStatus === 'reading' ? 'selected' : ''}>Shelf: Reading Now</option>
-            <option value="completed" ${rStatus === 'completed' ? 'selected' : ''}>Shelf: Completed</option>
-            <option value="want_to_read" ${rStatus === 'want_to_read' ? 'selected' : ''}>Shelf: Want to Read</option>
-          </select>
-          ${bk.pdfFile ? `<button type="button" class="ghost action-btn shelf-pdf-btn" data-book="${esc(bk.id)}" title="Open original PDF">PDF</button>` : ''}
-        </div>
-      </div>
-    `;
+      `;
+    } catch (err) {
+      console.error('Failed to render shelf book card:', bk?.id, err);
+      return '';
+    }
   }).join('');
+
+  gridEl.innerHTML = cardsHtml;
 
   gridEl.querySelectorAll('.open-shelf-read-btn').forEach(btn => {
     btn.onclick = () => {
@@ -3539,27 +3569,6 @@ if ($('#bmBarDiscussBtn')) {
     const bm = state.brain?.activeBookmark;
     discussChapterWithPoseidon(bm?.bookId, bm?.chapterNumber);
   };
-}
-
-document.querySelectorAll('.codex-status-btn').forEach(btn => {
-  btn.onclick = () => {
-    codexStatusFilter = btn.dataset.status;
-    renderCodexShelf();
-  };
-});
-
-document.querySelectorAll('.codex-cat-btn').forEach(btn => {
-  btn.onclick = () => {
-    codexCategoryFilter = btn.dataset.cat;
-    renderCodexShelf();
-  };
-});
-
-if ($('#codexBookSearch')) {
-  $('#codexBookSearch').addEventListener('input', e => {
-    codexSearchQuery = (e.target.value || '').trim().toLowerCase();
-    renderCodexShelf();
-  });
 }
 
 // ---------- Collapsible Sidebar (Desktop) & Slide-Out Drawer (Mobile) ----------
