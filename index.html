@@ -140,6 +140,16 @@
             </svg>
             <span class="side-text">Install</span>
           </button>
+          <button id="vaultTransferBtn" class="foot-btn" type="button" title="Phone Sync & Vault Transfer">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              <path d="m16 5 3 3-3 3" />
+              <path d="M8 8h11" />
+              <path d="m8 19-3-3 3-3" />
+              <path d="M16 16H5" />
+            </svg>
+            <span class="side-text">Sync</span>
+          </button>
           <button id="openFolderBtn" class="foot-btn" type="button" title="Sanctum Files & Chat Folders">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
@@ -164,6 +174,7 @@
           <span id="headerSubText" class="live"><i class="pulse"></i><span id="liveStatus">Checking last chat activity...</span></span>
         </div>
         <div class="bar-actions">
+          <button id="topSyncBtn" class="pill-btn" type="button" aria-label="Sync Phone Chats" title="Sync Phone & Mac Chats">Sync</button>
           <button id="mobileCodexTopBtn" class="pill-btn" type="button" aria-label="Open Codex">Codex</button>
           <button id="mobileDeepTopBtn" class="pill-btn" type="button" aria-label="Open Mind">Mind</button>
           <button id="mobileNewChatTopBtn" class="pill-btn only-mobile" type="button" aria-label="New chat">New</button>
@@ -430,6 +441,7 @@
       </label>
       <div class="row" style="justify-content: space-between;">
         <div class="row">
+          <button id="settingsVaultTransferBtn" type="button" class="ghost" style="color:var(--teal); border-color:var(--teal-border);">Phone Vault &amp; Sync</button>
           <a class="ghost btnlink" href="/api/export">Export Backup</a>
           <label class="ghost btnlink">Import Backup<input id="importFile" type="file" accept=".json" hidden /></label>
         </div>
@@ -779,6 +791,73 @@
       </div>
       <div class="modal-foot">
         <button id="pwaGuideDoneBtn" type="button" class="primary action-btn">Got It</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PHONE VAULT TRANSFER & SYNC MODAL ============ -->
+  <div id="vaultTransferModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Phone Vault Transfer &amp; Sync</h2>
+        <button id="closeVaultTransferModal" class="icon-btn" type="button">✕</button>
+      </div>
+
+      <div style="background:rgba(28,212,182,0.06); border:1px solid rgba(28,212,182,0.22); border-radius:10px; padding:12px; margin-bottom:14px; font-size:13px; line-height:1.5;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <strong style="color:var(--teal);">Device Storage Status</strong>
+          <span id="vtDeviceBadge" style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(212,175,55,0.15); color:var(--gold);">Checking...</span>
+        </div>
+        <div id="vtStatsText" style="color:var(--text-muted); font-size:12.5px;">Loading conversation statistics...</div>
+      </div>
+
+      <!-- Action 1: Direct Cloud / Network Sync -->
+      <div style="margin-bottom:16px;">
+        <h4 style="font-size:13.5px; color:var(--gold); margin:0 0 6px 0;">1. Direct Cloud &amp; Network Sync</h4>
+        <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">
+          Automatically push phone chats into Mac Sanctum via Cloudflare Tunnel or local Wi-Fi.
+        </p>
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <input id="vtServerUrl" type="url" placeholder="https://...trycloudflare.com or http://192.168.100.48:7777" style="flex:1; font-size:12.5px;" />
+          <button id="vtPushBtn" class="primary" type="button" style="white-space:nowrap;">Sync to Mac</button>
+        </div>
+        <div id="vtSyncStatus" style="font-size:11.5px; color:var(--text-muted);">Status: Ready</div>
+      </div>
+
+      <!-- Action 2: 1-Tap Copy & Share (Zero Network Required) -->
+      <div style="margin-bottom:16px;">
+        <h4 style="font-size:13.5px; color:var(--gold); margin:0 0 6px 0;">2. 1-Tap Phone Export (Offline / Copy)</h4>
+        <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">
+          Copy all stored chats to your clipboard or download a JSON backup file to AirDrop or paste into your Mac.
+        </p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="vtCopyBtn" class="primary" type="button" style="flex:1; min-width:140px;">
+            Copy Chats to Clipboard
+          </button>
+          <button id="vtDownloadBtn" class="ghost" type="button" style="flex:1; min-width:140px;">
+            Download Vault File
+          </button>
+        </div>
+      </div>
+
+      <!-- Action 3: Import & Merge on Mac -->
+      <div style="border-top:1px solid var(--border); padding-top:14px;">
+        <h4 style="font-size:13.5px; color:var(--gold); margin:0 0 6px 0;">3. Import / Paste Into Mac</h4>
+        <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px 0;">
+          Paste copied phone chats or upload JSON file. All messages merge chronologically without duplicates.
+        </p>
+        <textarea id="vtPasteArea" placeholder="Paste conversation JSON here..." rows="3" style="width:100%; box-sizing:border-box; font-family:var(--font-mono); font-size:11.5px; margin-bottom:8px;"></textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <label class="ghost btnlink" style="font-size:12px; padding:6px 12px; cursor:pointer;">
+            Upload JSON
+            <input id="vtFileInput" type="file" accept=".json" hidden />
+          </label>
+          <button id="vtMergeBtn" class="primary" type="button">Merge Into Sanctum</button>
+        </div>
+      </div>
+
+      <div class="row end" style="margin-top:14px;">
+        <button id="closeVaultTransferBtn" type="button" class="ghost">Done</button>
       </div>
     </div>
   </div>

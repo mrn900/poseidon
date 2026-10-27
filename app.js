@@ -49,7 +49,9 @@ function md(src) {
   const inline = t => t
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*(?!\s)(.+?)\*/g, '$1<em>$2</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>');
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<div class="chat-img-wrap" style="margin:10px 0;"><img src="$2" alt="$1" style="max-width:100%; border-radius:10px; border:1px solid rgba(148,197,220,0.22); box-shadow:0 4px 18px rgba(0,0,0,0.4);" loading="lazy" /><br><small style="color:var(--text-muted); font-size:11.5px;">$1</small></div>')
+    .replace(/(^|[^!])\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '$1<a href="$3" target="_blank" rel="noopener noreferrer">$2</a>');
   const close = () => { if (list) { html += `</${list}>`; list = null; } };
 
   for (const l of lines) {
@@ -373,6 +375,19 @@ async function send(text) {
   autosize();
   pendingImages = [];
   renderAttachPreview();
+
+  if (text.startsWith('/sync')) {
+    attemptCloudBrainSync(true);
+    return;
+  }
+  if (text.startsWith('/export') || text.startsWith('/transfer')) {
+    openVaultTransferModal();
+    return;
+  }
+  if (text.startsWith('/backup')) {
+    downloadVaultBackupFile();
+    return;
+  }
 
   isGeneratingChat = true;
   currentChatAbortController = new AbortController();
@@ -3829,18 +3844,29 @@ const BEACON_TOPIC = 'poseidon_nembaz_sanctum_v1';
 
 async function resolvePermanentCloudBeacon() {
   try {
-    const resp = await fetch(`https://ntfy.sh/${BEACON_TOPIC}/json?poll=1&since=30d`);
-    if (!resp.ok) return null;
+    let resp = await fetch(`https://ntfy.sh/${BEACON_TOPIC}/json?poll=1&since=24h`).catch(() => null);
+    if (!resp || !resp.ok) {
+      resp = await fetch(`https://ntfy.sh/${BEACON_TOPIC}/json?poll=1`).catch(() => null);
+    }
+    if (!resp || !resp.ok) return null;
     const text = await resp.text();
     const lines = text.trim().split('\n').filter(Boolean).reverse();
     for (const line of lines) {
       try {
         const outer = JSON.parse(line);
         if (outer.event === 'message' && outer.message) {
-          const inner = JSON.parse(outer.message);
-          if (inner.tunnelUrl && inner.tunnelUrl.startsWith('http')) {
-            localStorage.setItem('poseidon_live_beacon_url', inner.tunnelUrl);
-            return inner;
+          let tunnelUrl = '';
+          if (typeof outer.message === 'string' && outer.message.trim().startsWith('http')) {
+            tunnelUrl = outer.message.trim();
+          } else {
+            const inner = JSON.parse(outer.message);
+            if (inner && inner.tunnelUrl && inner.tunnelUrl.startsWith('http')) {
+              tunnelUrl = inner.tunnelUrl;
+            }
+          }
+          if (tunnelUrl) {
+            localStorage.setItem('poseidon_live_beacon_url', tunnelUrl);
+            return { tunnelUrl };
           }
         }
       } catch {}
@@ -4092,81 +4118,354 @@ if (!isAppStandalone && (window.innerWidth <= 860 || /iPhone|iPad|iPod|Android/i
   setTimeout(showPwaBanner, 3000);
 }
 
-// Periodic auto-sync when phone reconnects to laptop
-async function attemptCloudBrainSync() {
-  const cachedVault = loadLocalVault();
-  if (!cachedVault) return;
+// Multi-endpoint discovery and periodic auto-sync
+async function getEffectiveSyncEndpoints() {
+  const endpoints = [];
+  const origin = window.location.origin;
+  const isGh = origin && origin.includes('github.io');
+
+  if (!isGh && origin && origin.startsWith('http')) {
+    endpoints.push(origin.replace(/\/+$/, ''));
+  }
+
+  const custom = localStorage.getItem('poseidon_custom_sync_url');
+  if (custom && custom.startsWith('http')) endpoints.push(custom.trim().replace(/\/+$/, ''));
+
+  const cachedBeacon = localStorage.getItem('poseidon_live_beacon_url');
+  if (cachedBeacon && cachedBeacon.startsWith('http')) endpoints.push(cachedBeacon.trim().replace(/\/+$/, ''));
+
+  endpoints.push('https://illustration-weekly-emperor-marking.trycloudflare.com');
+  endpoints.push('http://192.168.100.48:7777');
+
+  return [...new Set(endpoints.filter(u => u && u.startsWith('http')))];
+}
+
+async function attemptCloudBrainSync(manual = false) {
+  const cachedVault = loadLocalVault() || {};
+  const currentConvo = Array.isArray(state.convo) ? state.convo : [];
+  const vaultConvo = Array.isArray(cachedVault.convo) ? cachedVault.convo : [];
+  const convoToSend = currentConvo.length >= vaultConvo.length ? currentConvo : vaultConvo;
+  const bmBook = (state.brain?.books || cachedVault.brain?.books || []).find(x => x.id === (state.brain?.activeBookmark?.bookId || cachedVault.brain?.activeBookmark?.bookId));
+
+  const payload = {
+    convo: convoToSend,
+    activeBookmark: state.brain?.activeBookmark || cachedVault.brain?.activeBookmark,
+    completedChapters: bmBook?.completedChapters,
+    userNotes: bmBook?.userNotes,
+    pendingDreams: state.pendingDreams?.length ? state.pendingDreams : (cachedVault.pendingDreams || []),
+    pendingRants: state.pendingRants?.length ? state.pendingRants : (cachedVault.pendingRants || []),
+    pendingMessages: state.pendingMessages?.length ? state.pendingMessages : (cachedVault.pendingMessages || [])
+  };
+
+  const endpoints = await getEffectiveSyncEndpoints();
+  let syncSuccess = false;
+
+  for (const ep of endpoints) {
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 6500);
+      const syncRes = await fetch(`${ep}/api/mobile/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(tid);
+
+      if (syncRes && syncRes.ok) {
+        const j = await syncRes.json();
+        if (j && j.ok) {
+          syncSuccess = true;
+          localStorage.setItem('poseidon_live_beacon_url', ep);
+          if (Array.isArray(j.convo) && j.convo.length >= state.convo.length) {
+            state.convo = j.convo;
+          }
+          if (j.brain) state.brain = j.brain;
+          state.pendingDreams = [];
+          state.pendingRants = [];
+          state.pendingMessages = [];
+          saveLocalVault();
+          if ($('#drawerSyncStatus')) $('#drawerSyncStatus').textContent = 'Live Brain Synced';
+          renderBrain();
+          if (manual && typeof toast === 'function') {
+            toast(`Synced with Mac. ${j.totalCount || state.convo.length} chats in Sanctum.`, 'teal');
+          }
+          break;
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!syncSuccess && manual && typeof toast === 'function') {
+    toast('Could not reach Mac server directly. Use Copy Chats to transfer.', 'gold');
+  }
+  return syncSuccess;
+}
+
+window.addEventListener('online', () => attemptCloudBrainSync(false));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') attemptCloudBrainSync(false);
+});
+setInterval(() => attemptCloudBrainSync(false), 60000);
+
+// ---------- Vault Transfer & Phone Sync Handlers ----------
+function openVaultTransferModal() {
+  const modal = $('#vaultTransferModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  const cachedVault = loadLocalVault() || {};
+  const msgsList = (state.convo && state.convo.length) ? state.convo : (cachedVault.convo || []);
+  const count = msgsList.length;
+  const lastMsg = count ? msgsList[count - 1] : null;
+  const lastDate = lastMsg?.ts ? new Date(lastMsg.ts).toLocaleString() : 'No timestamp';
+  const lastTxt = lastMsg?.content ? String(lastMsg.content).slice(0, 90) : 'None';
+
+  const isPhone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth <= 860;
+  const isPwa = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+
+  if ($('#vtDeviceBadge')) {
+    $('#vtDeviceBadge').textContent = isPwa ? 'Phone Standalone App' : (isPhone ? 'Mobile Browser' : 'Mac Desktop');
+  }
+
+  if ($('#vtStatsText')) {
+    $('#vtStatsText').innerHTML = `
+      <strong>${count}</strong> total chats saved in this device storage.<br>
+      <span style="font-size:11.5px;">Last Active: ${lastDate}</span><br>
+      <span style="font-size:11.5px; opacity:0.8;">Latest: "${escapeHtml(lastTxt)}..."</span>
+    `;
+  }
+
+  const cachedBeacon = localStorage.getItem('poseidon_live_beacon_url') || 'https://illustration-weekly-emperor-marking.trycloudflare.com';
+  if ($('#vtServerUrl') && !$('#vtServerUrl').value) {
+    $('#vtServerUrl').value = cachedBeacon;
+  }
+}
+
+function closeVaultTransferModal() {
+  const modal = $('#vaultTransferModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function copyVaultChatsToClipboard() {
+  const cachedVault = loadLocalVault() || {};
+  const convoToExport = (state.convo && state.convo.length) ? state.convo : (cachedVault.convo || []);
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    sourceDevice: navigator.userAgent,
+    convoCount: convoToExport.length,
+    convo: convoToExport,
+    brain: state.brain || cachedVault.brain || {}
+  };
+  const jsonStr = JSON.stringify(exportData, null, 2);
+
   try {
-    const bmBook = (cachedVault.brain?.books || []).find(x => x.id === cachedVault.brain?.activeBookmark?.bookId);
-    const syncRes = await fetch('/api/mobile/sync', {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(jsonStr);
+      if (typeof toast === 'function') toast(`Copied ${convoToExport.length} chats to clipboard.`, 'teal');
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = jsonStr;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (typeof toast === 'function') toast(`Copied ${convoToExport.length} chats to clipboard.`, 'teal');
+    }
+  } catch (e) {
+    if ($('#vtPasteArea')) {
+      $('#vtPasteArea').value = jsonStr;
+      $('#vtPasteArea').select();
+      if (typeof toast === 'function') toast('Selected JSON. Long-press to copy.', 'gold');
+    }
+  }
+}
+
+function downloadVaultBackupFile() {
+  const cachedVault = loadLocalVault() || {};
+  const convoToExport = (state.convo && state.convo.length) ? state.convo : (cachedVault.convo || []);
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    sourceDevice: navigator.userAgent,
+    convoCount: convoToExport.length,
+    convo: convoToExport,
+    brain: state.brain || cachedVault.brain || {}
+  };
+  const jsonStr = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+
+  if (navigator.canShare && navigator.canShare({ files: [new File([blob], 'poseidon-chats.json', { type: 'application/json' })] })) {
+    const file = new File([blob], 'poseidon-chats.json', { type: 'application/json' });
+    navigator.share({
+      title: 'Poseidon Sanctum Chats',
+      text: 'Poseidon conversation backup',
+      files: [file]
+    }).catch(() => {});
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `poseidon-chats-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  if (typeof toast === 'function') toast('Vault file downloaded.', 'teal');
+}
+
+async function pushVaultToMacServer() {
+  const inputUrl = ($('#vtServerUrl')?.value || '').trim().replace(/\/+$/, '');
+  if (!inputUrl) {
+    if (typeof toast === 'function') toast('Enter Mac URL first.', 'gold');
+    return;
+  }
+  localStorage.setItem('poseidon_custom_sync_url', inputUrl);
+  const statusEl = $('#vtSyncStatus');
+  if (statusEl) statusEl.textContent = 'Connecting to Mac...';
+
+  const cachedVault = loadLocalVault() || {};
+  const convoToSend = (state.convo && state.convo.length) ? state.convo : (cachedVault.convo || []);
+  const bmBook = (state.brain?.books || []).find(x => x.id === state.brain?.activeBookmark?.bookId);
+
+  try {
+    const res = await fetch(`${inputUrl}/api/mobile/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        activeBookmark: cachedVault.brain?.activeBookmark,
+        convo: convoToSend,
+        activeBookmark: state.brain?.activeBookmark,
         completedChapters: bmBook?.completedChapters,
         userNotes: bmBook?.userNotes,
-        pendingDreams: cachedVault.pendingDreams || [],
-        pendingRants: cachedVault.pendingRants || [],
-        pendingMessages: cachedVault.pendingMessages || []
+        pendingDreams: state.pendingDreams || [],
+        pendingRants: state.pendingRants || [],
+        pendingMessages: state.pendingMessages || []
       })
     });
-    if (syncRes.ok) {
-      const j = await syncRes.json();
-      if (j.ok && j.brain) {
-        state.brain = j.brain;
+    if (res.ok) {
+      const j = await res.json();
+      if (j && j.ok) {
         if (Array.isArray(j.convo)) state.convo = j.convo;
-        state.pendingDreams = [];
-        state.pendingRants = [];
-        state.pendingMessages = [];
+        if (j.brain) state.brain = j.brain;
         saveLocalVault();
-        if ($('#drawerSyncStatus')) $('#drawerSyncStatus').textContent = 'Live Brain Synced';
-        renderBrain();
+        if (statusEl) statusEl.textContent = `Success. Synced ${j.syncedCount || 0} chats into Mac (Total: ${j.totalCount || state.convo.length}).`;
+        if (typeof toast === 'function') toast('Success: Synced with Mac Sanctum.', 'teal');
+        return;
       }
     }
-  } catch {}
+    if (statusEl) statusEl.textContent = `Error: Server returned HTTP ${res.status}`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Failed to connect. Check URL or Wi-Fi.';
+  }
 }
 
-window.addEventListener('online', attemptCloudBrainSync);
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') attemptCloudBrainSync();
-});
-setInterval(attemptCloudBrainSync, 60000);
+async function mergeImportedVaultText(rawText) {
+  if (!rawText || !rawText.trim()) {
+    if (typeof toast === 'function') toast('Please paste conversation JSON first.', 'gold');
+    return;
+  }
+  try {
+    const parsed = JSON.parse(rawText.trim());
+    let res = await fetch('/api/convo/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed)
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      let incoming = [];
+      if (Array.isArray(parsed)) incoming = parsed;
+      else if (Array.isArray(parsed.convo)) incoming = parsed.convo;
+      else if (Array.isArray(parsed.messages)) incoming = parsed.messages;
+
+      if (incoming.length) {
+        const existingTs = new Set((state.convo || []).map(m => m.ts));
+        for (const m of incoming) {
+          if (m && !existingTs.has(m.ts)) {
+            state.convo.push(m);
+            existingTs.add(m.ts);
+          }
+        }
+        state.convo.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+        saveLocalVault();
+        location.reload();
+        return;
+      }
+    } else {
+      const j = await res.json();
+      if (j && j.ok) {
+        if (Array.isArray(j.convo)) state.convo = j.convo;
+        if (j.brain) state.brain = j.brain;
+        saveLocalVault();
+        if (typeof toast === 'function') toast(`Merged ${j.importedCount || 0} chats into Sanctum. Total: ${j.totalCount}.`, 'teal');
+        setTimeout(() => location.reload(), 800);
+      }
+    }
+  } catch (e) {
+    if (typeof toast === 'function') toast('Invalid JSON format.', 'gold');
+  }
+}
+
+// Attach Vault Transfer UI Event Listeners
+if ($('#vaultTransferBtn')) $('#vaultTransferBtn').onclick = openVaultTransferModal;
+if ($('#topSyncBtn')) $('#topSyncBtn').onclick = () => attemptCloudBrainSync(true);
+if ($('#settingsVaultTransferBtn')) $('#settingsVaultTransferBtn').onclick = openVaultTransferModal;
+if ($('#closeVaultTransferModal')) $('#closeVaultTransferModal').onclick = closeVaultTransferModal;
+if ($('#closeVaultTransferBtn')) $('#closeVaultTransferBtn').onclick = closeVaultTransferModal;
+if ($('#vtCopyBtn')) $('#vtCopyBtn').onclick = copyVaultChatsToClipboard;
+if ($('#vtDownloadBtn')) $('#vtDownloadBtn').onclick = downloadVaultBackupFile;
+if ($('#vtPushBtn')) $('#vtPushBtn').onclick = pushVaultToMacServer;
+if ($('#vtMergeBtn')) {
+  $('#vtMergeBtn').onclick = () => {
+    const val = $('#vtPasteArea')?.value || '';
+    mergeImportedVaultText(val);
+  };
+}
+if ($('#vtFileInput')) {
+  $('#vtFileInput').onchange = async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const txt = await f.text();
+    mergeImportedVaultText(txt);
+  };
+}
 
 // ---------- Boot ----------
 (async () => {
   const cachedVault = loadLocalVault();
   try {
-    if (cachedVault && (cachedVault.pendingMessages?.length || cachedVault.pendingDreams?.length || cachedVault.pendingRants?.length || cachedVault.brain?.activeBookmark)) {
-      const bmBook = (cachedVault.brain?.books || []).find(x => x.id === cachedVault.brain?.activeBookmark?.bookId);
-      await fetch('/api/mobile/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activeBookmark: cachedVault.brain?.activeBookmark,
-          completedChapters: bmBook?.completedChapters,
-          userNotes: bmBook?.userNotes,
-          pendingDreams: cachedVault.pendingDreams || [],
-          pendingRants: cachedVault.pendingRants || [],
-          pendingMessages: cachedVault.pendingMessages || []
-        })
-      }).catch(() => {});
-    }
-
     let loadedState = null;
     try {
       const sRes = await fetch('/api/state');
       if (sRes && sRes.ok) loadedState = await sRes.json();
     } catch {}
+
     if (!loadedState) {
       try {
         const dRes = await fetch('./data_state.json');
         if (dRes && dRes.ok) loadedState = await dRes.json();
       } catch {}
     }
+
     if (loadedState) {
       state = loadedState;
-      if (cachedVault && cachedVault.convo && cachedVault.convo.length > (state.convo || []).length) {
-        state.convo = cachedVault.convo;
+      if (cachedVault && Array.isArray(cachedVault.convo) && cachedVault.convo.length) {
+        const existingTs = new Set((state.convo || []).map(m => m.ts));
+        const existingTexts = new Set((state.convo || []).map(m => `${m.role}:${String(m.content || '').trim().slice(0, 100)}`));
+        let added = 0;
+        for (const m of cachedVault.convo) {
+          if (!m || !m.content) continue;
+          const textKey = `${m.role}:${String(m.content || '').trim().slice(0, 100)}`;
+          if ((m.ts && existingTs.has(m.ts)) || existingTexts.has(textKey)) continue;
+          state.convo.push(m);
+          if (m.ts) existingTs.add(m.ts);
+          existingTexts.add(textKey);
+          added++;
+        }
+        if (added > 0) {
+          state.convo.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+        }
       }
       if (cachedVault && cachedVault.brain?.activeBookmark) {
         state.brain.activeBookmark = cachedVault.brain.activeBookmark;
@@ -4183,14 +4482,10 @@ setInterval(attemptCloudBrainSync, 60000);
       state = cachedVault;
       if ($('#drawerSyncStatus')) $('#drawerSyncStatus').textContent = 'Autonomous Mobile Mode';
     }
+
     if (state.settings?.directKey) {
       try { localStorage.setItem('poseidon_direct_key', state.settings.directKey); } catch {}
     }
-    state.pendingDreams = [];
-    state.pendingRants = [];
-    state.pendingMessages = [];
-    saveLocalVault();
-    if ($('#drawerSyncStatus')) $('#drawerSyncStatus').textContent = 'Live Brain Synced';
   } catch {
     if (cachedVault) {
       state = cachedVault;
@@ -4214,6 +4509,9 @@ setInterval(attemptCloudBrainSync, 60000);
   if (window.innerWidth > 860) {
     input.focus();
   }
+
+  // Auto-sync in background after render
+  setTimeout(() => attemptCloudBrainSync(false), 1500);
 })();
 
 
