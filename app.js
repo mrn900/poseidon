@@ -4134,7 +4134,7 @@ async function getEffectiveSyncEndpoints() {
   const cachedBeacon = localStorage.getItem('poseidon_live_beacon_url');
   if (cachedBeacon && cachedBeacon.startsWith('http')) endpoints.push(cachedBeacon.trim().replace(/\/+$/, ''));
 
-  endpoints.push('https://illustration-weekly-emperor-marking.trycloudflare.com');
+  endpoints.push('https://occupied-tel-identity-implementation.trycloudflare.com');
   endpoints.push('http://192.168.100.48:7777');
 
   return [...new Set(endpoints.filter(u => u && u.startsWith('http')))];
@@ -4236,7 +4236,7 @@ function openVaultTransferModal() {
     `;
   }
 
-  const cachedBeacon = localStorage.getItem('poseidon_live_beacon_url') || 'https://illustration-weekly-emperor-marking.trycloudflare.com';
+  const cachedBeacon = localStorage.getItem('poseidon_live_beacon_url') || 'https://occupied-tel-identity-implementation.trycloudflare.com';
   if ($('#vtServerUrl') && !$('#vtServerUrl').value) {
     $('#vtServerUrl').value = cachedBeacon;
   }
