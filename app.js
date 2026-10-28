@@ -152,7 +152,7 @@ function addMsg(role, content, ts = Date.now(), cls = '', images = []) {
   const imgs = (images || []).filter(i => i && i.thumb).map(i => `<img src="${i.thumb}" alt="attached image" />`).join('');
 
   el.innerHTML = `
-    <div class="m-av"><img src="/icon-192.png" alt="" /></div>
+    <div class="m-av"><img src="./icon-192.png" alt="" /></div>
     <div class="m-body">
       ${imgs ? `<div class="m-imgs">${imgs}</div>` : ''}
       <div class="bubble ${cls}">${role === 'user' ? esc(content) : md(content)}</div>
@@ -213,7 +213,7 @@ function welcome() {
     : '';
   msgs.innerHTML = `
     <div class="welcome">
-      <img class="w-logo" src="/icon-512.png" alt="Poseidon" />
+      <img class="w-logo" src="./icon-512.png" alt="Poseidon" />
       <h2>POSEIDON</h2>
       <p>Your private brother, teacher and mentor. Everything you share is absorbed and remembered, and he grows sharper with every word.</p>
       ${lastSeenHtml}
@@ -283,8 +283,8 @@ function stopCurrentPrompt() {
 
 async function directAutonomousGeminiChat(userMessage, images = [], signal = null) {
   const HARDCODED_KEY = atob('QVEuQWI4Uk42STR4UHBVal9sVWdOblB3VXU2QTAtY3hrb1dKYVJLa0VrZjN5ZWVkZENDbnc=');
-  const key = state.settings?.directKey || localStorage.getItem('poseidon_direct_key') || HARDCODED_KEY;
-  if (!key) throw new Error('NO_DIRECT_KEY');
+  let key = state.settings?.directKey || state.settings?.apiKey || localStorage.getItem('poseidon_direct_key') || HARDCODED_KEY;
+  if (!key || key === 'undefined' || key.length < 15) key = HARDCODED_KEY;
 
   const bm = state.brain?.activeBookmark;
   const bmContext = bm
@@ -331,11 +331,9 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
   ].map(category => ({ category, threshold: 'BLOCK_NONE' }));
 
   const models = [
-    'gemini-2.5-flash',
     'gemini-3-flash-preview',
     'gemini-3.5-flash-lite',
-    'gemini-flash-latest',
-    'gemini-2.0-flash'
+    'gemini-flash-latest'
   ];
   for (const mName of models) {
     if (signal?.aborted) throw new Error('PROMPT_ABORTED');
@@ -353,7 +351,8 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       });
       if (!resp.ok) continue;
       const d = await resp.json();
-      const parts = (d.candidates?.[0]?.content?.parts || []).filter(p => !p.thought);
+      let parts = (d.candidates?.[0]?.content?.parts || []).filter(p => !p.thought);
+      if (!parts.length) parts = d.candidates?.[0]?.content?.parts || [];
       const text = parts.map(p => p.text || '').join('').replace(/[\u2014\u2013]/g, ', ').replace(/\s+--\s+/g, ', ');
       if (text && text.trim()) return text.trim();
     } catch (err) {
@@ -361,7 +360,7 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
     }
   }
   if (signal?.aborted) throw new Error('PROMPT_ABORTED');
-  return "I hear you, Henri. The deep waters are stirring. Stand firm in your sovereignty, keep your energy locked, and proceed with your mission.";
+  return "I hear you, Henri. Stand firm in your sovereignty, keep your energy locked, and proceed with your mission.";
 }
 
 let pendingImages = [];
@@ -420,9 +419,32 @@ async function send(text) {
   let fullReply = '';
   let streamStarted = false;
   let wasAborted = false;
-
   try {
-    const r = await fetch('/api/chat?stream=true', {
+    let streamUrl = '/api/chat?stream=true';
+    const isGh = window.location.origin && window.location.origin.includes('github.io');
+    if (isGh) {
+      const endpoints = await getEffectiveSyncEndpoints();
+      let liveTarget = '';
+      for (const ep of endpoints) {
+        try {
+          const controller = new AbortController();
+          const tid = setTimeout(() => controller.abort(), 2200);
+          const p = await fetch(`${ep}/api/ping`, { method: 'GET', signal: controller.signal });
+          clearTimeout(tid);
+          if (p.ok) {
+            liveTarget = ep;
+            break;
+          }
+        } catch {}
+      }
+      if (liveTarget) {
+        streamUrl = `${liveTarget}/api/chat?stream=true`;
+      } else {
+        throw new Error('FALLBACK_AUTONOMOUS');
+      }
+    }
+
+    const r = await fetch(streamUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal,
@@ -4134,6 +4156,16 @@ async function getEffectiveSyncEndpoints() {
   const cachedBeacon = localStorage.getItem('poseidon_live_beacon_url');
   if (cachedBeacon && cachedBeacon.startsWith('http')) endpoints.push(cachedBeacon.trim().replace(/\/+$/, ''));
 
+  if (isGh) {
+    try {
+      const b = await resolvePermanentCloudBeacon();
+      if (b && b.tunnelUrl && b.tunnelUrl.startsWith('http')) {
+        endpoints.unshift(b.tunnelUrl.trim().replace(/\/+$/, ''));
+      }
+    } catch {}
+  }
+
+  endpoints.push('https://discs-utilities-knit-convinced.trycloudflare.com');
   endpoints.push('https://occupied-tel-identity-implementation.trycloudflare.com');
   endpoints.push('http://192.168.100.48:7777');
 
