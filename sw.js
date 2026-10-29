@@ -2,7 +2,7 @@
 // Caches the entire Poseidon UI, all 30 Ancient Books, Dreams, Rants, and Brain state
 // so Henri has 100% access even when his Mac is turned off or he has zero internet in the bush.
 
-const CACHE_NAME = 'poseidon-sanctum-v16';
+const CACHE_NAME = 'poseidon-sanctum-v17';
 const STATIC_ASSETS = [
   './',
   './index.html',
