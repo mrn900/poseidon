@@ -4398,7 +4398,12 @@ async function mergeImportedVaultText(rawText) {
     return;
   }
   try {
-    const parsed = JSON.parse(rawText.trim());
+    let clean = rawText.trim();
+    const firstBrace = clean.search(/[\[\{]/);
+    if (firstBrace > 0) {
+      clean = clean.slice(firstBrace).trim();
+    }
+    const parsed = JSON.parse(clean);
     let res = await fetch('/api/convo/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
