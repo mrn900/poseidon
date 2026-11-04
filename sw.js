@@ -2,7 +2,7 @@
 // Caches the entire Poseidon UI, all 30 Ancient Books, Dreams, Rants, and Brain state
 // so Henri has 100% access even when his Mac is turned off or he has zero internet in the bush.
 
-const CACHE_NAME = 'poseidon-sanctum-v21';
+const CACHE_NAME = 'poseidon-sanctum-v22';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -24,25 +24,34 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       for (const u of STATIC_ASSETS) {
         try {
-          const res = await fetch(u);
+          const res = await fetch(u, { cache: 'no-store' });
           if (res && res.status === 200) {
             await cache.put(u, res);
           }
         } catch (e) {}
       }
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
+      await self.clients.claim();
+      const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of allClients) {
+        try {
+          client.postMessage({ type: 'POSEIDON_SW_UPDATED', version: CACHE_NAME });
+        } catch (e) {}
+      }
+    })()
   );
 });
 
@@ -58,9 +67,9 @@ self.addEventListener('fetch', (event) => {
     fetchReq = new Request(req, { headers: ngHeaders, mode: 'cors' });
   }
 
-  // Network-first with instant cache fallback so when Mac is off, cached brain and UI load seamlessly
+  // Always bypass stale browser HTTP disk cache when online, with instant cache fallback when offline
   event.respondWith(
-    fetch(fetchReq)
+    fetch(fetchReq, { cache: 'no-store' })
       .then((res) => {
         if (res && res.status === 200) {
           const clone = res.clone();

@@ -522,6 +522,10 @@ function syncNewMessagesEverywhere(uMsg, aMsg) {
 
   // 2. Relay immediately to cloud chat relay so Mac server (which commits & pushes to GitHub) and all other devices (Phone, iPad, Mac) receive it right away
   try {
+    const bmCompact = state.brain?.activeBookmark ? {
+      bookId: state.brain.activeBookmark.bookId,
+      chapterNumber: state.brain.activeBookmark.chapterNumber
+    } : null;
     fetch(`https://ntfy.sh/${CHAT_RELAY_TOPIC}`, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
@@ -529,10 +533,10 @@ function syncNewMessagesEverywhere(uMsg, aMsg) {
         type: 'chat_pair',
         source: navigator.userAgent || 'device',
         ts: Date.now(),
-        activeBookmark: state.brain?.activeBookmark || null,
+        activeBookmark: bmCompact,
         messages: [
-          { role: uMsg.role, content: String(uMsg.content || '').slice(0, 3500), ts: uMsg.ts },
-          { role: aMsg.role, content: String(aMsg.content || '').slice(0, 3500), ts: aMsg.ts }
+          { role: uMsg.role, content: String(uMsg.content || '').slice(0, 1400), ts: uMsg.ts },
+          { role: aMsg.role, content: String(aMsg.content || '').slice(0, 1800), ts: aMsg.ts }
         ]
       })
     }).catch(() => {});
@@ -541,7 +545,7 @@ function syncNewMessagesEverywhere(uMsg, aMsg) {
   // 3. Push full vault to Mac server endpoint (which triggers scheduleGitHubStatePush to update GitHub!)
   setTimeout(() => {
     attemptCloudBrainSync(false).catch(() => {});
-  }, 300);
+  }, 150);
 }
 
 let pendingImages = [];
@@ -4461,8 +4465,27 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
+const APP_SW_VERSION = 'poseidon-sanctum-v22';
+if ('caches' in window) {
+  caches.keys().then(keys => {
+    keys.forEach(k => {
+      if (k !== APP_SW_VERSION) caches.delete(k).catch(() => {});
+    });
+  }).catch(() => {});
+}
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('./sw.js').then(reg => {
+  let reloadingForSw = false;
+  navigator.serviceWorker.addEventListener('message', (ev) => {
+    if (ev.data && ev.data.type === 'POSEIDON_SW_UPDATED') {
+      const lastReloadedVer = sessionStorage.getItem('poseidon_sw_reloaded');
+      if (!reloadingForSw && lastReloadedVer !== ev.data.version) {
+        reloadingForSw = true;
+        sessionStorage.setItem('poseidon_sw_reloaded', ev.data.version);
+        window.location.reload();
+      }
+    }
+  });
+  navigator.serviceWorker.register('./sw.js?v=22', { updateViaCache: 'none' }).then(reg => {
     reg.update().catch(() => {});
   }).catch(() => {});
 }
@@ -4594,8 +4617,16 @@ async function fetchRelayedCloudMessages() {
       for (const line of lines) {
         try {
           const outer = JSON.parse(line);
-          if (outer.event === 'message' && outer.message) {
-            const inner = JSON.parse(outer.message);
+          if (outer.event === 'message') {
+            let inner = null;
+            if (outer.attachment && outer.attachment.url) {
+              try {
+                const attRes = await fetch(outer.attachment.url);
+                if (attRes && attRes.ok) inner = await attRes.json();
+              } catch {}
+            } else if (outer.message && outer.message.trim().startsWith('{')) {
+              inner = JSON.parse(outer.message);
+            }
             if (inner && Array.isArray(inner.messages)) {
               for (const m of inner.messages) {
                 if (m && m.role && m.content) relayed.push(m);
@@ -4637,7 +4668,7 @@ async function getEffectiveSyncEndpoints() {
   const cachedLan = localStorage.getItem('poseidon_live_lan_url');
   if (cachedLan && cachedLan.startsWith('http')) endpoints.push(cachedLan.trim().replace(/\/+$/, ''));
 
-  endpoints.push('https://liz-double-ignored-baseline.trycloudflare.com');
+  endpoints.push('https://fri-conf-jewel-ruby.trycloudflare.com');
   endpoints.push('http://192.168.1.104:7777');
 
   return [...new Set(endpoints.filter(u => u && u.startsWith('http')))];
@@ -4664,7 +4695,7 @@ async function attemptCloudBrainSync(manual = false) {
     try {
       const tail = convoToSend.slice(-2).map(m => ({
         role: m.role,
-        content: String(m.content || '').slice(0, 1600),
+        content: String(m.content || '').slice(0, 1400),
         ts: m.ts || Date.now()
       }));
       fetch(`https://ntfy.sh/${CHAT_RELAY_TOPIC}`, {
@@ -4784,7 +4815,7 @@ window.addEventListener('online', () => attemptCloudBrainSync(false));
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') attemptCloudBrainSync(false);
 });
-setInterval(() => attemptCloudBrainSync(false), 30000);
+setInterval(() => attemptCloudBrainSync(false), 20000);
 
 // ---------- Vault Transfer & Phone Sync Handlers ----------
 async function openVaultTransferModal() {
@@ -4815,7 +4846,7 @@ async function openVaultTransferModal() {
   }
 
   const beacon = await resolvePermanentCloudBeacon().catch(() => null);
-  const liveUrl = beacon?.tunnelUrl || localStorage.getItem('poseidon_live_beacon_url') || 'https://started-hebrew-starring-plus.trycloudflare.com';
+  const liveUrl = beacon?.tunnelUrl || localStorage.getItem('poseidon_live_beacon_url') || 'https://fri-conf-jewel-ruby.trycloudflare.com';
   if ($('#vtServerUrl')) {
     $('#vtServerUrl').value = liveUrl;
   }
@@ -5002,16 +5033,28 @@ if ($('#vtFileInput')) {
     let loadedState = null;
     if (!window.location.origin.includes('github.io')) {
       try {
-        const sRes = await fetch('/api/state');
+        const sRes = await fetch('/api/state', { cache: 'no-store' });
         if (sRes && sRes.ok) loadedState = await sRes.json();
       } catch {}
     }
 
     if (!loadedState) {
-      try {
-        const dRes = await fetch(`./data_state.json?v=${Date.now()}`, { cache: 'no-store' });
-        if (dRes && dRes.ok) loadedState = await dRes.json();
-      } catch {}
+      const bootUrls = [
+        `https://raw.githubusercontent.com/mrn900/poseidon/main/data_state.json?v=${Date.now()}`,
+        `./data_state.json?v=${Date.now()}`
+      ];
+      for (const bUrl of bootUrls) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 4500);
+          const dRes = await fetch(bUrl, { cache: 'no-store', signal: ctrl.signal });
+          clearTimeout(tid);
+          if (dRes && dRes.ok) {
+            loadedState = await dRes.json();
+            if (loadedState && Array.isArray(loadedState.convo)) break;
+          }
+        } catch {}
+      }
     }
 
     if (loadedState) {
@@ -5062,8 +5105,8 @@ if ($('#vtFileInput')) {
     input.focus();
   }
 
-  // Auto-sync in background after render
-  setTimeout(() => attemptCloudBrainSync(false), 1500);
+  // Immediate background sync on boot
+  setTimeout(() => attemptCloudBrainSync(false), 100);
 })();
 
 

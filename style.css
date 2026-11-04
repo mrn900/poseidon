@@ -30,11 +30,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-#sea { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.85; }
+#sea { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.85; }
 button { font: inherit; cursor: pointer; transition: all 0.18s ease; }
 .hidden { display: none !important; }
 
-.app { position: relative; z-index: 1; display: flex; height: 100vh; }
+.app { position: relative; display: flex; height: 100vh; }
 
 /* ================= CHAT VIEW ================= */
 .chat {
