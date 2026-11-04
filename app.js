@@ -1,16 +1,19 @@
-// Global ngrok warning bypass for all internal API and asset requests
+// Global ngrok warning bypass for ngrok API and asset requests
 (function() {
   const _origFetch = window.fetch;
   window.fetch = function(input, init) {
-    init = init ? { ...init } : {};
-    if (init.headers instanceof Headers) {
-      if (!init.headers.has('ngrok-skip-browser-warning')) {
-        init.headers.set('ngrok-skip-browser-warning', 'true');
+    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    if (urlStr.includes('ngrok') || (window.location.hostname && window.location.hostname.includes('ngrok'))) {
+      init = init ? { ...init } : {};
+      if (init.headers instanceof Headers) {
+        if (!init.headers.has('ngrok-skip-browser-warning')) {
+          init.headers.set('ngrok-skip-browser-warning', 'true');
+        }
+      } else if (Array.isArray(init.headers)) {
+        init.headers = [...init.headers, ['ngrok-skip-browser-warning', 'true']];
+      } else {
+        init.headers = Object.assign({}, init.headers, { 'ngrok-skip-browser-warning': 'true' });
       }
-    } else if (Array.isArray(init.headers)) {
-      init.headers = [...init.headers, ['ngrok-skip-browser-warning', 'true']];
-    } else {
-      init.headers = Object.assign({}, init.headers, { 'ngrok-skip-browser-warning': 'true' });
     }
     return _origFetch.call(this, input, init);
   };
