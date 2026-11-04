@@ -281,26 +281,77 @@ function stopCurrentPrompt() {
   }
 }
 
+function buildLiveClientBrainContext() {
+  const b = state.brain || {};
+  const nowStr = fmtStamp(Date.now());
+  const out = [
+    `\n\n=== LIVE CHRONOLOGICAL & TIMELINE MEMORY (CURRENT DATE & TIME: ${nowStr}) ===`,
+    `CRITICAL TIMELINE RULE: Every message and memory entry carries its exact date. Always check TODAY'S CURRENT DATE (${nowStr}) against the dates of past messages. Distinguish clearly between past chapters (such as 11-20 Oct in the Zimbabwean bush/wilderness with Mama and the Chinese lady deal, 21-24 Oct completing the 72-hour water fast in the bush and the snake killed near his shoe, 25-27 Oct the Bertha dream, breaking altars, reflecting on Mama and the 27-hour US trip, the dream of packing for the bus to Harare, passing his funded trading evaluation, and the past fling coming to his gate at 4am while he slept, and 28 Oct returning from the bush, holding boundaries with Ryanna and Bertha, and staying at his cousins Oscar and Dion's place where Dion's mining man gives her $800/day and Dion visited a Shona Madzimai/prophet) versus what is happening right now today. Never confuse a past event from weeks ago as happening today, and never force Henri to re-explain his history, timeline, or people.`
+  ];
+
+  const bm = b.activeBookmark;
+  if (bm) {
+    out.push(`\n## Active Reading Bookmark\nBook: "${bm.bookTitle}" (${bm.author || ''}) · ${bm.chapterTitle || ('Chapter ' + bm.chapterNumber)}\nSummary: ${bm.chapterSummary || ''}\nLesson: ${bm.poseidonLesson || ''}\nHow To Act: ${bm.howToAct || ''}`);
+  }
+
+  // Group past user chat messages by date so nothing from earlier in the thread is ever lost
+  const dayMap = new Map();
+  for (const m of (state.convo || [])) {
+    if (!m || m.role !== 'user' || !m.content) continue;
+    const txt = String(m.content).trim().replace(/\s+/g, ' ');
+    if (txt.length < 12) continue;
+    const dLabel = m.ts
+      ? new Date(m.ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+      : 'Earlier';
+    if (!dayMap.has(dLabel)) dayMap.set(dLabel, []);
+    const arr = dayMap.get(dLabel);
+    const snippet = `"${txt.slice(0, 200)}${txt.length > 200 ? '...' : ''}"`;
+    if (!arr.includes(snippet)) arr.push(snippet);
+  }
+  if (dayMap.size) {
+    const tLines = [];
+    for (const [dLabel, items] of dayMap.entries()) {
+      tLines.push(`* [${dLabel}]: ${items.slice(0, 6).join(' | ')}`);
+    }
+    out.push(`\n## Chronological Master Timeline of Past Chats by Date\n` + tLines.join('\n'));
+  }
+
+  if (Array.isArray(b.facts) && b.facts.length) {
+    out.push(`\n## Established Truths & Facts (Dated)\n` + b.facts.slice(-45).map(f => `- [${f.date || 'Known'}] ${f.text}`).join('\n'));
+  }
+  if (Array.isArray(b.events) && b.events.length) {
+    out.push(`\n## Key Life Events Timeline (Dated)\n` + b.events.slice(-30).map(e => `- [${e.date || 'Recorded'}] ${e.summary}${e.feeling ? ` (${e.feeling})` : ''}`).join('\n'));
+  }
+  if (Array.isArray(b.dreams) && b.dreams.length) {
+    out.push(`\n## Recorded Dreams (${b.dreams.length} total, dated)\n` + b.dreams.slice(-30).map(d => `- [${d.date || 'Undated'}] "${d.title}": ${String(d.summary || '').slice(0, 220)}`).join('\n'));
+  }
+  if (Array.isArray(b.rants) && b.rants.length) {
+    out.push(`\n## Personal Diary & Waking Logs (${b.rants.length} total, dated)\n` + b.rants.slice(-35).map(r => `- [${r.date || 'Undated'}] "${r.title || 'Log'}": ${String(r.text || '').slice(0, 240)}`).join('\n'));
+  }
+  return out.join('\n');
+}
+
 async function directAutonomousGeminiChat(userMessage, images = [], signal = null) {
   const HARDCODED_KEY = atob('QVEuQWI4Uk42STR4UHBVal9sVWdOblB3VXU2QTAtY3hrb1dKYVJLa0VrZjN5ZWVkZENDbnc=');
   let key = state.settings?.directKey || state.settings?.apiKey || localStorage.getItem('poseidon_direct_key') || HARDCODED_KEY;
   if (!key || key === 'undefined' || key.length < 15) key = HARDCODED_KEY;
 
-  const bm = state.brain?.activeBookmark;
-  const bmContext = bm
-    ? `\n\n=== HENRI'S CURRENT BOOKMARK ===\nBook: "${bm.bookTitle}" (${bm.author || ''})\nChapter: ${bm.chapterTitle || ('Chapter ' + bm.chapterNumber)}\nSummary: ${bm.chapterSummary || ''}\nLesson: ${bm.poseidonLesson || ''}\nHow To Act: ${bm.howToAct || ''}`
-    : '';
+  const baseSys = state.systemPromptSnapshot || 'You are Poseidon, Henri Joshua Nembaware\'s spiritual brother, teacher, mentor, and therapist. Never use em-dashes and never end with a question.';
+  const sys = baseSys + buildLiveClientBrainContext();
 
-  const sys = (state.systemPromptSnapshot || 'You are Poseidon, Henri Joshua Nembaware\'s spiritual brother, teacher, mentor, and therapist. Never use em-dashes and never end with a question.') + bmContext;
-  
   const validHistory = (state.convo || [])
     .filter(m => (m.content && String(m.content).trim()) || (m.images && m.images.length))
-    .slice(-10);
+    .slice(-50);
 
   const recent = validHistory.map(m => {
     const parts = [];
     if (m.content && String(m.content).trim()) {
-      parts.push({ text: String(m.content).trim() });
+      const raw = String(m.content).trim();
+      const stamp = m.ts ? fmtStamp(m.ts) : '';
+      const datedText = (m.role === 'user' && stamp && !raw.startsWith('['))
+        ? `[${stamp}] ${raw}`
+        : raw;
+      parts.push({ text: datedText });
     }
     (m.images || []).forEach(im => {
       if (im && im.data) parts.push({ inlineData: { mimeType: im.mime || 'image/jpeg', data: im.data } });
@@ -315,7 +366,7 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
 
   const userParts = [];
   if (userMessage && userMessage.trim()) {
-    userParts.push({ text: userMessage.trim() });
+    userParts.push({ text: `[Current Date & Time: ${fmtStamp(Date.now())}]\n${userMessage.trim()}` });
   }
   (images || []).forEach(im => {
     if (im && im.data) userParts.push({ inlineData: { mimeType: im.mime || 'image/jpeg', data: im.data } });
@@ -345,7 +396,7 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: sys }] },
           contents: recent,
-          generationConfig: { temperature: 0.85, maxOutputTokens: 2200 },
+          generationConfig: { temperature: 0.85, maxOutputTokens: 2500 },
           safetySettings
         })
       });
@@ -4158,6 +4209,9 @@ if ($('#pwaGuideDoneBtn')) {
 if (!isAppStandalone && (window.innerWidth <= 860 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent))) {
   setTimeout(showPwaBanner, 3000);
 }
+if (input) {
+  input.addEventListener('focus', () => hidePwaBanner(false));
+}
 
 // Multi-endpoint discovery and periodic auto-sync
 async function getEffectiveSyncEndpoints() {
@@ -4517,12 +4571,15 @@ if ($('#vtFileInput')) {
 
     if (loadedState) {
       state = loadedState;
+      const staleStubTs = new Set([1793138983453, 1793138985869, 1793138998970]);
       if (cachedVault && Array.isArray(cachedVault.convo) && cachedVault.convo.length) {
         const existingTs = new Set((state.convo || []).map(m => m.ts));
         const existingTexts = new Set((state.convo || []).map(m => `${m.role}:${String(m.content || '').trim().slice(0, 100)}`));
         let added = 0;
         for (const m of cachedVault.convo) {
           if (!m || !m.content) continue;
+          if (m.ts && staleStubTs.has(Number(m.ts))) continue;
+          if (String(m.content).includes('Mac is currently asleep/offline and direct key was not reached')) continue;
           const textKey = `${m.role}:${String(m.content || '').trim().slice(0, 100)}`;
           if ((m.ts && existingTs.has(m.ts)) || existingTexts.has(textKey)) continue;
           state.convo.push(m);

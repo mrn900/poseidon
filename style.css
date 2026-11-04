@@ -3113,7 +3113,7 @@ button { font: inherit; cursor: pointer; transition: all 0.18s ease; }
     max-height: 100dvh !important;
     border-radius: 0 !important;
     border: 0 !important;
-    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 0 !important;
   }
 
   .codex-head-sub {
