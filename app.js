@@ -4946,7 +4946,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v22';
+const APP_SW_VERSION = 'poseidon-sanctum-v23';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
@@ -5054,26 +5054,68 @@ if (input) {
 }
 
 // Multi-endpoint discovery and periodic auto-sync
-const STALE_STUB_TS = new Set([1793138983453, 1793138985869, 1793138998970]);
+const STALE_STUB_TS = new Set([
+  1793138983453, 1793138985869, 1793138998970,
+  1793979891911, 1793979902460, 1793979908766, 1793980321511, 1793980330418
+]);
+const OLD_STUB_TEXT = 'I hear you, Henri. Stand firm in your sovereignty, keep your energy locked, and proceed with your mission.';
 
 function mergeConvoArrays(baseList, incomingList) {
   const out = [];
   const seenTs = new Set();
-  const seenTxt = new Set();
+  const seenTxt = new Map();
   for (const arr of [baseList || [], incomingList || []]) {
     for (const m of arr) {
       if (!m || !m.content) continue;
       if (m.ts && STALE_STUB_TS.has(Number(m.ts))) continue;
-      if (String(m.content).includes('Mac is currently asleep/offline and direct key was not reached')) continue;
-      const tKey = `${m.role}:${String(m.content || '').trim().slice(0, 100)}`;
-      if ((m.ts && seenTs.has(m.ts)) || seenTxt.has(tKey)) continue;
+      const body = String(m.content).trim();
+      if (body.includes('Mac is currently asleep/offline and direct key was not reached')) continue;
+      if (m.role === 'assistant' && body === OLD_STUB_TEXT) continue;
+      if (m.ts && seenTs.has(m.ts)) continue;
+      const tKey = `${m.role}:${body.slice(0, 100)}`;
+      const mTs = Number(m.ts) || 0;
+      const prevTs = seenTxt.get(tKey);
+      if (prevTs !== undefined && Math.abs(mTs - prevTs) < 15000) continue;
       out.push(m);
       if (m.ts) seenTs.add(m.ts);
-      seenTxt.add(tKey);
+      seenTxt.set(tKey, mTs);
     }
   }
   out.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
   return out;
+}
+
+function mergeBrainLists(cloudList, localList) {
+  const out = Array.isArray(cloudList) ? cloudList.slice() : [];
+  if (!Array.isArray(localList) || !localList.length) return out;
+  const keyOf = x => {
+    if (!x) return '';
+    if (typeof x === 'string') return x.trim().slice(0, 120);
+    if (x.id) return 'id:' + x.id;
+    return String(x.text || x.title || x.content || x.name || JSON.stringify(x)).trim().slice(0, 120);
+  };
+  const seen = new Set(out.map(keyOf));
+  for (const item of localList) {
+    const k = keyOf(item);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
+function mergeBrainObjects(cloudBrain, localBrain) {
+  if (!cloudBrain) return localBrain || {};
+  if (!localBrain) return cloudBrain;
+  const merged = Object.assign({}, cloudBrain);
+  for (const key of ['dreams', 'rants', 'facts', 'events', 'axioms', 'directives', 'patterns', 'futures']) {
+    if (Array.isArray(cloudBrain[key]) || Array.isArray(localBrain[key])) {
+      merged[key] = mergeBrainLists(cloudBrain[key], localBrain[key]);
+    }
+  }
+  if (localBrain.activeBookmark) merged.activeBookmark = localBrain.activeBookmark;
+  merged.books = mergeCompactBooksIntoBrain(cloudBrain.books, localBrain.books);
+  return merged;
 }
 
 function rerenderChatMessages() {
@@ -5156,6 +5198,7 @@ async function getEffectiveSyncEndpoints() {
 }
 
 async function attemptCloudBrainSync(manual = false) {
+  if (isGeneratingChat && !manual) return false;
   const syncBtnSpan = $('#topSyncBtn span');
   const origSyncText = syncBtnSpan ? syncBtnSpan.textContent : 'Sync';
   if (manual && syncBtnSpan) syncBtnSpan.textContent = 'Syncing...';
@@ -5203,7 +5246,7 @@ async function attemptCloudBrainSync(manual = false) {
   for (const ep of endpoints) {
     try {
       const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 5000);
+      const tid = setTimeout(() => controller.abort(), 25000);
       const syncRes = await fetch(`${ep}/api/mobile/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5219,14 +5262,14 @@ async function attemptCloudBrainSync(manual = false) {
           localStorage.setItem('poseidon_live_beacon_url', ep);
           if ($('#vtServerUrl')) $('#vtServerUrl').value = ep;
           state.convo = mergeConvoArrays(convoToSend, j.convo || []);
-          if (j.brain) state.brain = j.brain;
+          if (j.brain) state.brain = mergeBrainObjects(j.brain, state.brain);
           state.pendingDreams = [];
           state.pendingRants = [];
           state.pendingMessages = [];
           saveLocalVault();
           if ($('#drawerSyncStatus')) $('#drawerSyncStatus').textContent = 'Live Brain Synced';
           const newLastTs = state.convo.length ? state.convo[state.convo.length - 1]?.ts : 0;
-          if (state.convo.length !== prevCount || newLastTs !== prevLastTs) {
+          if (!isGeneratingChat && (state.convo.length !== prevCount || newLastTs !== prevLastTs)) {
             rerenderChatMessages();
           }
           renderBrain();
@@ -5250,7 +5293,7 @@ async function attemptCloudBrainSync(manual = false) {
     for (const sUrl of ghStateUrls) {
       try {
         const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 6000);
+        const tid = setTimeout(() => ctrl.abort(), 30000);
         const r = await fetch(sUrl, { cache: 'no-store', signal: ctrl.signal });
         clearTimeout(tid);
         if (r && r.ok) {
@@ -5259,9 +5302,7 @@ async function attemptCloudBrainSync(manual = false) {
             syncSuccess = true;
             state.convo = mergeConvoArrays(convoToSend, cloudState.convo);
             if (cloudState.brain) {
-              const localBm = state.brain?.activeBookmark || cachedVault.brain?.activeBookmark;
-              state.brain = cloudState.brain;
-              if (localBm) state.brain.activeBookmark = localBm;
+              state.brain = mergeBrainObjects(cloudState.brain, state.brain || cachedVault.brain);
             }
             if (cloudState.systemPromptSnapshot) {
               state.systemPromptSnapshot = cloudState.systemPromptSnapshot;
@@ -5269,7 +5310,7 @@ async function attemptCloudBrainSync(manual = false) {
             saveLocalVault();
             if ($('#drawerSyncStatus')) $('#drawerSyncStatus').textContent = 'Cloud Sanctum Synced';
             const newLastTs = state.convo.length ? state.convo[state.convo.length - 1]?.ts : 0;
-            if (state.convo.length !== prevCount || newLastTs !== prevLastTs) {
+            if (!isGeneratingChat && (state.convo.length !== prevCount || newLastTs !== prevLastTs)) {
               rerenderChatMessages();
             }
             renderBrain();
@@ -5527,7 +5568,7 @@ if ($('#vtFileInput')) {
       for (const bUrl of bootUrls) {
         try {
           const ctrl = new AbortController();
-          const tid = setTimeout(() => ctrl.abort(), 4500);
+          const tid = setTimeout(() => ctrl.abort(), cachedVault ? 8000 : 30000);
           const dRes = await fetch(bUrl, { cache: 'no-store', signal: ctrl.signal });
           clearTimeout(tid);
           if (dRes && dRes.ok) {
@@ -5543,8 +5584,8 @@ if ($('#vtFileInput')) {
       if (cachedVault && Array.isArray(cachedVault.convo) && cachedVault.convo.length) {
         state.convo = mergeConvoArrays(state.convo || [], cachedVault.convo);
       }
-      if (cachedVault && cachedVault.brain?.activeBookmark) {
-        state.brain.activeBookmark = cachedVault.brain.activeBookmark;
+      if (cachedVault && cachedVault.brain) {
+        state.brain = mergeBrainObjects(loadedState.brain, cachedVault.brain);
       }
       if (state.settings?.directKey) {
         try { localStorage.setItem('poseidon_direct_key', state.settings.directKey); } catch {}
