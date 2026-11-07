@@ -402,7 +402,64 @@ function getClientGeminiKey() {
   return key;
 }
 
-async function callClientGeminiJson(systemPromptText, userPromptText, maxTokens = 2000) {
+// Best free Gemini model first, step down when one is exhausted or busy.
+const CLIENT_CHAT_LADDER = [
+  'gemini-4-argon',
+  'gemini-3.1-pro-preview',
+  'gemini-pro-latest',
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-flash-latest',
+  'gemini-3-flash-preview',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-lite-latest'
+];
+const CLIENT_BACKGROUND_LADDER = [
+  'gemini-flash-lite-latest',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-3.6-flash'
+];
+const CLIENT_COOLDOWN_KEY = 'poseidon_model_cooldowns';
+
+function readClientCooldowns() {
+  try { return JSON.parse(localStorage.getItem(CLIENT_COOLDOWN_KEY) || '{}') || {}; } catch { return {}; }
+}
+
+function coolDownClientModel(mName, status, message = '') {
+  const msg = String(message || '');
+  let ms = 0;
+  if (status === 404) ms = 24 * 3600 * 1000;
+  else if (status === 429) ms = /per ?day|PerDay|daily/i.test(msg) ? 3 * 3600 * 1000 : 10 * 60 * 1000;
+  else if (status === 503 || status === 500 || /high demand/i.test(msg)) ms = 90 * 1000;
+  else if (status === 'timeout') ms = 5 * 60 * 1000;
+  if (!ms) return;
+  const map = readClientCooldowns();
+  map[mName] = Date.now() + ms;
+  try { localStorage.setItem(CLIENT_COOLDOWN_KEY, JSON.stringify(map)); } catch {}
+}
+
+function clientModelLadder(tier = 'chat') {
+  const base = tier === 'background' ? CLIENT_BACKGROUND_LADDER : CLIENT_CHAT_LADDER;
+  const map = readClientCooldowns();
+  const now = Date.now();
+  const ready = base.filter(m => (map[m] || 0) <= now);
+  return ready.length ? ready : base;
+}
+
+async function readGeminiError(resp) {
+  try {
+    const body = await resp.json();
+    const err = Array.isArray(body) ? body[0]?.error : body?.error;
+    return err?.message || '';
+  } catch { return ''; }
+}
+
+async function callClientGeminiJson(systemPromptText, userPromptText, maxTokens = 2000, tier = 'background') {
   const key = getClientGeminiKey();
   const safetySettings = [
     'HARM_CATEGORY_HARASSMENT',
@@ -411,7 +468,7 @@ async function callClientGeminiJson(systemPromptText, userPromptText, maxTokens 
     'HARM_CATEGORY_DANGEROUS_CONTENT'
   ].map(category => ({ category, threshold: 'BLOCK_NONE' }));
 
-  const models = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview'];
+  const models = clientModelLadder(tier);
   for (const mName of models) {
     try {
       const payload = {
@@ -425,12 +482,26 @@ async function callClientGeminiJson(systemPromptText, userPromptText, maxTokens 
         },
         safetySettings
       };
-      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mName}:generateContent?key=${encodeURIComponent(key)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!resp.ok) continue;
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 75000);
+      let resp;
+      try {
+        resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mName}:generateContent?key=${encodeURIComponent(key)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: ctrl.signal
+        });
+      } catch (e) {
+        coolDownClientModel(mName, 'timeout');
+        continue;
+      } finally {
+        clearTimeout(tid);
+      }
+      if (!resp.ok) {
+        coolDownClientModel(mName, resp.status, await readGeminiError(resp));
+        continue;
+      }
       const d = await resp.json();
       let parts = (d.candidates?.[0]?.content?.parts || []).filter(p => !p.thought);
       if (!parts.length) parts = d.candidates?.[0]?.content?.parts || [];
@@ -570,15 +641,11 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
     'HARM_CATEGORY_DANGEROUS_CONTENT'
   ].map(category => ({ category, threshold: 'BLOCK_NONE' }));
 
-  const candidateModels = [
-    'gemini-flash-lite-latest',
-    'gemini-3.5-flash-lite',
-    'gemini-3-flash-preview'
-  ];
+  const candidateModels = clientModelLadder('chat');
 
   if (signal?.aborted) throw new Error('PROMPT_ABORTED');
 
-  // 1. Live SSE Streaming across fast candidate models (~0.8s response time, immune to 20/day limit)
+  // 1. Live SSE streaming, best model first
   for (const mName of candidateModels) {
     const payload = {
       systemInstruction: { parts: [{ text: sys }] },
@@ -591,18 +658,33 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       safetySettings
     };
 
+    const localCtrl = new AbortController();
+    const onOuterAbort = () => localCtrl.abort();
+    if (signal) signal.addEventListener('abort', onOuterAbort, { once: true });
+    let idleTimer = null;
+    let timedOut = false;
+    const armIdle = (ms) => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => { timedOut = true; localCtrl.abort(); }, ms);
+    };
+    let accumulated = '';
     try {
+      armIdle(50000);
       const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mName}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: signal || undefined,
+        signal: localCtrl.signal,
         body: JSON.stringify(payload)
       });
-      if (resp.ok && resp.body) {
+      if (!resp.ok) {
+        clearTimeout(idleTimer);
+        coolDownClientModel(mName, resp.status, await readGeminiError(resp));
+        continue;
+      }
+      if (resp.body) {
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let accumulated = '';
         while (true) {
           if (signal?.aborted) {
             try { await reader.cancel(); } catch {}
@@ -610,6 +692,7 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
           }
           const { value, done } = await reader.read();
           if (done) break;
+          armIdle(45000);
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
           buffer = lines.pop();
@@ -633,17 +716,23 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
             }
           }
         }
+        clearTimeout(idleTimer);
         if (accumulated && accumulated.trim()) return accumulated.trim();
       }
     } catch (err) {
-      if (err.name === 'AbortError' || err.message === 'PROMPT_ABORTED' || signal?.aborted) {
+      clearTimeout(idleTimer);
+      if (signal?.aborted || err.message === 'PROMPT_ABORTED') {
         throw new Error('PROMPT_ABORTED');
       }
+      if (accumulated && accumulated.trim()) return accumulated.trim();
+      if (timedOut) coolDownClientModel(mName, 'timeout');
+    } finally {
+      if (signal) signal.removeEventListener('abort', onOuterAbort);
     }
   }
 
-  // 2. Non-stream fallback across candidate models
-  for (const mName of candidateModels) {
+  // 2. Non-stream fallback on the fast lite models
+  for (const mName of clientModelLadder('background')) {
     const payload = {
       systemInstruction: { parts: [{ text: sys }] },
       contents: recent,
@@ -2491,7 +2580,7 @@ function renderBrain() {
               const dr = (state.brain?.dreams || []).find(d => String(d.id) === String(id));
               if (!dr) throw new Error('Dream not found');
               const sys = `You are Poseidon. Deliver an uncompromising, visceral spiritual interpretation of this dream grounded in the 36 Forbidden Ancient Books. Zero em dashes. Return strict JSON: {"interpretation":"3-5 sentences of deep spiritual insight","symbols":["3-6 lowercase symbols"],"emotions":["1-3 lowercase emotions"]}`;
-              const j = await callClientGeminiJson(sys, `Dream Date: ${dr.date}\nTitle: ${dr.title}\nDream: ${dr.summary}`, 1000);
+              const j = await callClientGeminiJson(sys, `Dream Date: ${dr.date}\nTitle: ${dr.title}\nDream: ${dr.summary}`, 1000, 'chat');
               if (j && j.interpretation) {
                 dr.interpretation = j.interpretation;
                 if (Array.isArray(j.symbols) && j.symbols.length) dr.symbols = j.symbols.map(s => String(s).toLowerCase().trim());
@@ -2772,7 +2861,7 @@ $('#reflect').onclick = async () => {
   "patterns": [{"title": "Short pattern name", "pieces": ["2-4 specific dated dreams or events that form this pattern"], "meaning": "Deep esoteric and tactical meaning of this pattern"}],
   "synthesis": "A direct, unfiltered Markdown message from Poseidon to Henri revealing how his latest dreams, waking life, and the 36 Forbidden Books connect right now"
 }`;
-      const j = await callClientGeminiJson(sys, 'Connect all dots across my dreams, diary logs, and the 36 Forbidden Books. Return strict JSON.', 3000);
+      const j = await callClientGeminiJson(sys, 'Connect all dots across my dreams, diary logs, and the 36 Forbidden Books. Return strict JSON.', 3000, 'chat');
       if (!j) throw new Error('Could not synthesize reflection');
       state.brain = state.brain || {};
       if (j.portrait) state.brain.portrait = j.portrait;
@@ -2844,7 +2933,7 @@ $('#forecastBtn').onclick = async () => {
   "crucialPivot": "The single decisive action required in the next 72 hours",
   "message": "Poseidon's direct decree to Henri"
 }`;
-      const data = await callClientGeminiJson(sys, `Question / Focus: ${question || 'My next sovereign timeline jump in Zimbabwe and the US trip'}`, 2800);
+      const data = await callClientGeminiJson(sys, `Question / Focus: ${question || 'My next sovereign timeline jump in Zimbabwe and the US trip'}`, 2800, 'chat');
       if (!data) throw new Error('Could not calculate timelines');
       const dStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
       const entry = {
@@ -4946,7 +5035,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v23';
+const APP_SW_VERSION = 'poseidon-sanctum-v24';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
