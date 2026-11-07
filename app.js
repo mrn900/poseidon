@@ -402,17 +402,30 @@ function getClientGeminiKey() {
   return key;
 }
 
-// Best free Gemini model first, step down when one is exhausted or busy.
+function getClientGroqKey() {
+  const REV_B64 = 'OUVaMUJMWXlTT3h3Z1BHeDRQejJVNXE5WUYzYnlkR1dJRWc4eDVRVDltM3k5Z2d5bW5DY19rc2c=';
+  try {
+    return atob(REV_B64).split('').reverse().join('');
+  } catch { return ''; }
+}
+
+function compactSystemForFastClient(sysText) {
+  const s = String(sysText || '');
+  if (s.length <= 16000) return s;
+  return s.slice(0, 9500) + '\n\n[...]\n\n' + s.slice(-6500);
+}
+
+// Primary main models gemini-4-argon and gemini-3.8-flash first, then step down when busy or exhausted.
 const CLIENT_CHAT_LADDER = [
   'gemini-4-argon',
-  'gemini-3.1-pro-preview',
-  'gemini-pro-latest',
   'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-flash-latest',
   'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-pro-latest',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-flash-lite-latest'
@@ -424,6 +437,11 @@ const CLIENT_BACKGROUND_LADDER = [
   'gemini-3-flash-preview',
   'gemini-3.6-flash'
 ];
+const CLIENT_GROQ_MODELS = [
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.8-27b',
+  'openai/gpt-oss-20b'
+];
 const CLIENT_COOLDOWN_KEY = 'poseidon_model_cooldowns';
 
 function readClientCooldowns() {
@@ -432,11 +450,17 @@ function readClientCooldowns() {
 
 function coolDownClientModel(mName, status, message = '') {
   const msg = String(message || '');
+  const isPrimaryMain = (mName === 'gemini-4-argon' || mName === 'gemini-3.8-flash');
   let ms = 0;
   if (status === 404) ms = 24 * 3600 * 1000;
-  else if (status === 429) ms = /per ?day|PerDay|daily/i.test(msg) ? 3 * 3600 * 1000 : 10 * 60 * 1000;
-  else if (status === 503 || status === 500 || /high demand/i.test(msg)) ms = 90 * 1000;
-  else if (status === 'timeout') ms = 5 * 60 * 1000;
+  else if (status === 429) {
+    if (isPrimaryMain) ms = 10 * 60 * 1000;
+    else ms = /per ?day|PerDay|daily/i.test(msg) ? 3 * 3600 * 1000 : 10 * 60 * 1000;
+  } else if (status === 503 || status === 500 || /high demand/i.test(msg)) {
+    ms = isPrimaryMain ? 60 * 1000 : 90 * 1000;
+  } else if (status === 'timeout') {
+    ms = isPrimaryMain ? 2 * 60 * 1000 : 5 * 60 * 1000;
+  }
   if (!ms) return;
   const map = readClientCooldowns();
   map[mName] = Date.now() + ms;
@@ -512,6 +536,42 @@ async function callClientGeminiJson(systemPromptText, userPromptText, maxTokens 
         try { return JSON.parse(match[0]); } catch {}
       }
     } catch {}
+  }
+
+  // Fallback to Groq when Gemini is temporarily exhausted
+  const groqKey = getClientGroqKey();
+  if (groqKey) {
+    const compactSys = compactSystemForFastClient(systemPromptText);
+    for (const gModel of CLIENT_GROQ_MODELS) {
+      try {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+          body: JSON.stringify({
+            model: gModel,
+            max_tokens: Math.min(maxTokens, 1400),
+            temperature: 0.35,
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: compactSys },
+              { role: 'user', content: String(userPromptText || '').slice(0, 4000) }
+            ]
+          })
+        });
+        if (!resp.ok) continue;
+        const d = await resp.json();
+        const raw = (d.choices?.[0]?.message?.content || '')
+          .replace(/[\u2014\u2013]/g, ', ')
+          .replace(/\s+--\s+/g, ', ')
+          .replace(/\u2011/g, '-')
+          .replace(/\u202f/g, ' ');
+        try { return JSON.parse(raw); } catch {}
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (match) {
+          try { return JSON.parse(match[0]); } catch {}
+        }
+      } catch {}
+    }
   }
   return null;
 }
@@ -762,6 +822,49 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       }
     } catch (err) {
       if (err.name === 'AbortError' || signal?.aborted) throw new Error('PROMPT_ABORTED');
+    }
+  }
+
+  // 3. Groq high-speed fallback (openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b)
+  const groqKey = getClientGroqKey();
+  if (groqKey) {
+    const compactSys = compactSystemForFastClient(sys);
+    const groqMsgs = validHistory.slice(-8).map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').trim().slice(0, 500)
+    }));
+    groqMsgs.push({
+      role: 'user',
+      content: `[Current Date & Time: ${fmtStamp(Date.now())}]\n${String(userMessage || '').trim().slice(0, 2200)}`
+    });
+    for (const gModel of CLIENT_GROQ_MODELS) {
+      try {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+          signal: signal || undefined,
+          body: JSON.stringify({
+            model: gModel,
+            max_tokens: 1400,
+            temperature: 0.85,
+            messages: [{ role: 'system', content: compactSys }, ...groqMsgs]
+          })
+        });
+        if (!resp.ok) continue;
+        const d = await resp.json();
+        const text = (d.choices?.[0]?.message?.content || '')
+          .replace(/[\u2014\u2013]/g, ', ')
+          .replace(/\s+--\s+/g, ', ')
+          .replace(/\u2011/g, '-')
+          .replace(/\u202f/g, ' ')
+          .trim();
+        if (text) {
+          if (typeof onChunk === 'function') onChunk(text, text);
+          return text;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError' || signal?.aborted) throw new Error('PROMPT_ABORTED');
+      }
     }
   }
 
@@ -5035,7 +5138,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v24';
+const APP_SW_VERSION = 'poseidon-sanctum-v25';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
