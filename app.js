@@ -45,9 +45,18 @@ function formatDateNice(isoDate) {
 }
 
 // ---------- Markdown Parser ----------
-const esc = s => (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function toCleanText(s) {
+  if (s === null || s === undefined) return '';
+  if (typeof s === 'string') return s;
+  if (Array.isArray(s)) return s.map(toCleanText).filter(Boolean).join('\n\n');
+  if (typeof s === 'object') {
+    return toCleanText(s.text || s.summary || s.meaning || s.title || s.description || s.piece || s.event || Object.values(s).join(' - '));
+  }
+  return String(s);
+}
+const esc = s => toCleanText(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function md(src) {
-  const lines = esc(src || '').split('\n');
+  const lines = esc(toCleanText(src)).split('\n');
   let html = '', list = null;
   const inline = t => t
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -2976,13 +2985,32 @@ $('#reflect').onclick = async () => {
       const j = await callClientGeminiJson(sys, 'Connect all dots across my dreams, diary logs, and the 36 Forbidden Books. Return strict JSON.', 3000, 'chat');
       if (!j) throw new Error('Could not synthesize reflection');
       state.brain = state.brain || {};
-      if (j.portrait) state.brain.portrait = j.portrait;
-      if (Array.isArray(j.patterns) && j.patterns.length) state.brain.patterns = j.patterns;
+      if (j.portrait) state.brain.portrait = toCleanText(j.portrait);
+      if (Array.isArray(j.patterns) && j.patterns.length) {
+        state.brain.patterns = state.brain.patterns || [];
+        const seenTitles = new Set(state.brain.patterns.map(p => toCleanText(p?.title).toLowerCase().slice(0, 32)));
+        for (const np of j.patterns) {
+          if (!np) continue;
+          const t = toCleanText(np.title);
+          if (!t) continue;
+          const k = t.toLowerCase().slice(0, 32);
+          if (!seenTitles.has(k)) {
+            state.brain.patterns.push({
+              title: t,
+              pieces: Array.isArray(np.pieces) ? np.pieces.map(toCleanText).filter(Boolean) : [toCleanText(np.pieces)].filter(Boolean),
+              meaning: toCleanText(np.meaning)
+            });
+            seenTitles.add(k);
+          }
+        }
+        if (state.brain.patterns.length > 18) state.brain.patterns = state.brain.patterns.slice(-18);
+      }
       const dStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-      state.brain.lastReflection = { date: dStr, synthesis: j.synthesis || '' };
+      const synthText = toCleanText(j.synthesis);
+      state.brain.lastReflection = { date: dStr, synthesis: synthText };
       saveLocalVault(true);
       renderBrain();
-      if (j.synthesis) addMsg('assistant', j.synthesis);
+      if (synthText) addMsg('assistant', synthText);
     }
   } catch (e) {
     alert(e.message);
@@ -5147,7 +5175,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v26';
+const APP_SW_VERSION = 'poseidon-sanctum-v27';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
