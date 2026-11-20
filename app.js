@@ -2225,6 +2225,19 @@ function renderBrain() {
   const b = state.brain || {};
   const empty = t => `<div class="empty">${t}</div>`;
 
+  // Heal any non-string objects saved in localStorage from earlier LLM JSON responses
+  if (b.portrait && typeof b.portrait !== 'string') b.portrait = toCleanText(b.portrait);
+  if (b.lastReflection && b.lastReflection.synthesis && typeof b.lastReflection.synthesis !== 'string') {
+    b.lastReflection.synthesis = toCleanText(b.lastReflection.synthesis);
+  }
+  if (Array.isArray(b.patterns)) {
+    b.patterns = b.patterns.filter(Boolean).map(x => ({
+      title: toCleanText(x.title || ''),
+      pieces: Array.isArray(x.pieces) ? x.pieces.map(toCleanText).filter(Boolean) : [toCleanText(x.pieces)].filter(Boolean),
+      meaning: toCleanText(x.meaning || '')
+    }));
+  }
+
   syncLiveBookmarkBanner();
   try { renderMind(); } catch (e) { console.error('renderMind error:', e); }
   try { updateLastInChatStatus(); } catch {}
@@ -2538,26 +2551,30 @@ function renderBrain() {
   }
 
   // 1. Patterns / Puzzle
-  let p = '';
-  if (b.lastReflection?.synthesis) {
-    p += `<div class="section-title">Latest Spiritual Synthesis · ${b.lastReflection.date}</div>
-          <div class="card synthesis">${md(b.lastReflection.synthesis)}</div>`;
-  }
-  if (b.patterns?.length) {
-    p += `<div class="section-title">Archetypal Patterns</div>` +
-      b.patterns.map(x => `
-        <div class="card">
-          <h4>${esc(x.title || '')}</h4>
-          <ul class="pieces list">${(x.pieces || []).map(s => `<li>${esc(s)}</li>`).join('')}</ul>
-          <div class="reading">${esc(x.meaning || '')}</div>
-        </div>`).join('');
-  }
-  if (b.connections?.length) {
-    p += `<div class="section-title">Synchronicity Threads</div>
-          <div class="card"><ul class="list">${b.connections.slice(-20).reverse().map(c => `<li><span class="date-badge">${c.date}</span> ${esc(c.text)}</li>`).join('')}</ul></div>`;
-  }
-  if ($('#puzzle')) {
-    $('#puzzle').innerHTML = p || empty('No dots connected yet. Share dreams and diary entries, then select "Connect The Dots".');
+  try {
+    let p = '';
+    if (b.lastReflection?.synthesis) {
+      p += `<div class="section-title">Latest Spiritual Synthesis · ${esc(b.lastReflection.date || '')}</div>
+            <div class="card synthesis">${md(b.lastReflection.synthesis)}</div>`;
+    }
+    if (b.patterns?.length) {
+      p += `<div class="section-title">Archetypal Patterns (${b.patterns.length})</div>` +
+        b.patterns.map(x => `
+          <div class="card">
+            <h4>${esc(x.title || '')}</h4>
+            <ul class="pieces list">${(Array.isArray(x.pieces) ? x.pieces : []).map(s => `<li>${esc(s)}</li>`).join('')}</ul>
+            <div class="reading">${esc(x.meaning || '')}</div>
+          </div>`).join('');
+    }
+    if (b.connections?.length) {
+      p += `<div class="section-title">Synchronicity Threads</div>
+            <div class="card"><ul class="list">${b.connections.slice(-20).reverse().map(c => `<li><span class="date-badge">${esc(c.date || '')}</span> ${esc(c.text)}</li>`).join('')}</ul></div>`;
+    }
+    if ($('#puzzle')) {
+      $('#puzzle').innerHTML = p || empty('No dots connected yet. Share dreams and diary entries, then select "Connect The Dots".');
+    }
+  } catch (e) {
+    console.error('renderBrain puzzle error:', e);
   }
 
   // Foresight Matrix (Oracle)
@@ -5175,7 +5192,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v27';
+const APP_SW_VERSION = 'poseidon-sanctum-v28';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
