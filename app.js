@@ -598,7 +598,8 @@ function buildLiveClientBrainContext() {
     `     * 11-20 Oct 2026: Out in the Zimbabwean bush/wilderness with Mama, the Chinese lady deal, waiting in the car, surveyor, pegged land.`,
     `     * 21-24 Oct 2026: Completed 72-hour water fast in the bush, endured braai temptation, broke fast cleanly with sadza/greens/green tea/apple, snake killed near his shoe outside.`,
     `     * 25-27 Oct 2026: Dream of Bertha, breaking altars, reflecting on Mama and 27-hour US trip, dream of packing for bus to Harare ($400 from Mama), passed funded trading evaluation, past fling came 13-17km to his gate at 4am while he slept.`,
-    `     * 28 Oct - 6 Nov 2026: Returned from the bush, stayed at cousins Oscar and Dion's place, had prophetic dreams of HYPE surging to $99 USD (30 Oct) and a sniper entry at $77 during a market drop (3 Nov), returned to the farm in Harare on 4 Nov as gold hit $4,026 dreaming of being a Master Navigator, shared his childhood 5% oxygen Tipton UK resurrection vision (5 Nov), and is studying Sagar Sharma's "The Hidden World of Memory-Eating Entities".`,
+    `     * 28 Oct - 6 Nov 2026: Returned from the bush, stayed at cousins Oscar and Dion's place, had prophetic dreams of HYPE surging to $99 USD (30 Oct) and a sniper entry at $77 during a market drop (3 Nov), returned to the farm in Harare on 4 Nov as gold hit $4,026 dreaming of being a Master Navigator, shared his childhood 5% oxygen Tipton UK resurrection vision (5 Nov), and studied Sagar Sharma's "The Hidden World of Memory-Eating Entities".`,
+    `     * 7-20 Nov 2026 (Dallas, Texas Crucible): Flew from Harare via Doha/Qatar to Dallas, Texas (navigating airport questioning on 8-9 Nov), met the States girl on 9 Nov and played a deep getting-to-know-you game, and experienced a high-voltage dream series (8 Nov: Sniper miss, Joseph Knapton executing Charlie Adams & Sekuru's car; 10 Nov: Sofa & meaning of money; 13 Nov: $3,000 USD rejected at UK Post Office with Karanveer & Jörge breaking a fake green bracelet while the real one stayed intact; 17 Nov: Dark expanded farm with Sekuru, cousin Joe & silent lions guarding the door; 18 Nov: Sherlock Holmes investigation of the ex's suicide by razor, 126 Tipton return, and the burgundy metal codex of the 36 Forbidden Books; 19 Nov: P's house & walking away from the $300 birthday extraction trap; 20 Nov: Luxury car personal driver outside his old school after losing the funded trading account, severing ties with the girls, and being challenged on using whiskey/wine as a chemical crutch).`,
     `   - Never confuse a past event from weeks ago as happening today unless Henri says he is back there now. Never force Henri to re-explain his history, timeline, or people.`
   ];
 
@@ -873,6 +874,14 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
 
 const CHAT_RELAY_TOPIC = 'poseidon_nembaz_chat_relay_v2';
 const CLIENT_DREAM_REGEX = /\b(dream|dreamt|dreamed|dreaming|nightmare|vision last night|i saw in my sleep|in my sleep)\b/i;
+const CLIENT_META_DREAM_Q = /^(dive deeper|part\s*[12]|did you add|i don'?t recall my dream|i slept today but|i don'?t know how to log|morning,?\s*not much remembered|so interesting,?\s*new dream today|i remember my dream\s*$)/i;
+
+function isTrueClientDream(txt) {
+  const s = String(txt || '').trim();
+  if (s.length < 32) return false;
+  if (CLIENT_META_DREAM_Q.test(s)) return false;
+  return CLIENT_DREAM_REGEX.test(s);
+}
 
 async function absorbExchangeIntoBrainClient(uMsg, aMsg) {
   if (!uMsg || !aMsg || !state.brain) return;
@@ -882,7 +891,7 @@ async function absorbExchangeIntoBrainClient(uMsg, aMsg) {
 
   const specifiedDate = extractSpecifiedDateFromTextClient(cleanTxt, uMsg.ts || Date.now());
   const todayDateStr = new Date(uMsg.ts || Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  const isDreamMention = CLIENT_DREAM_REGEX.test(cleanTxt);
+  const isDreamMention = isTrueClientDream(cleanTxt);
   const replyGist = String(aMsg.content || '').replace(/[#*_>`~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 280);
 
   // 1. Immediate synchronous logging so UI is never empty even before LLM extraction finishes
@@ -5138,7 +5147,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v25';
+const APP_SW_VERSION = 'poseidon-sanctum-v26';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
@@ -5248,7 +5257,16 @@ if (input) {
 // Multi-endpoint discovery and periodic auto-sync
 const STALE_STUB_TS = new Set([
   1793138983453, 1793138985869, 1793138998970,
-  1793979891911, 1793979902460, 1793979908766, 1793980321511, 1793980330418
+  1793979839362, 1793979853283, 1793979875977, 1793979891911,
+  1793979902460, 1793979908766, 1793980118914, 1793980321511,
+  1793980330418, 1793980381718
+]);
+const BLOCKED_CLIENT_DREAM_IDS = new Set([
+  'dr_1791811939490_0', 'dr_1791866100370_14', 'dr_1791866884006_16', 'dr_1791953755697_22',
+  'dr_1792212991127_34', 'dr_1792301094627_36', 'dr_1792472759870_54', 'dr_1792474207243_62',
+  'dr_1792637322871vz76', 'dr_1792731197353rk96', '179273236283496wz',
+  'dr_client_1794112688505', '1794308011019ezu6', '1794308012872l5r2',
+  'dr_client_1794350053465', 'dr_client_1794354605049', '179493936333229op', '17951813165555xqf'
 ]);
 const OLD_STUB_TEXT = 'I hear you, Henri. Stand firm in your sovereignty, keep your energy locked, and proceed with your mission.';
 
@@ -5277,9 +5295,18 @@ function mergeConvoArrays(baseList, incomingList) {
   return out;
 }
 
-function mergeBrainLists(cloudList, localList) {
-  const out = Array.isArray(cloudList) ? cloudList.slice() : [];
-  if (!Array.isArray(localList) || !localList.length) return out;
+function mergeBrainLists(cloudList, localList, listKey = '') {
+  const filterBlocked = (arr) => (Array.isArray(arr) ? arr : []).filter(item => {
+    if (!item) return false;
+    if (listKey === 'dreams') {
+      if (item.id && BLOCKED_CLIENT_DREAM_IDS.has(String(item.id))) return false;
+      if (CLIENT_META_DREAM_Q.test(String(item.title || '').trim()) || CLIENT_META_DREAM_Q.test(String(item.summary || '').trim())) return false;
+    }
+    return true;
+  });
+  const out = filterBlocked(cloudList);
+  const localFiltered = filterBlocked(localList);
+  if (!localFiltered.length) return out;
   const keyOf = x => {
     if (!x) return '';
     if (typeof x === 'string') return x.trim().slice(0, 120);
@@ -5287,9 +5314,16 @@ function mergeBrainLists(cloudList, localList) {
     return String(x.text || x.title || x.content || x.name || JSON.stringify(x)).trim().slice(0, 120);
   };
   const seen = new Set(out.map(keyOf));
-  for (const item of localList) {
+  const seenTitles = new Set(out.map(x => typeof x === 'object' && x.title ? `${x.date || ''}:${String(x.title).toLowerCase().slice(0, 26)}` : '').filter(Boolean));
+  for (const item of localFiltered) {
     const k = keyOf(item);
     if (!k || seen.has(k)) continue;
+    if (listKey === 'dreams' && typeof item === 'object') {
+      const tKey = item.title ? `${item.date || ''}:${String(item.title).toLowerCase().slice(0, 26)}` : '';
+      if (tKey && seenTitles.has(tKey)) continue;
+      if (String(item.id || '').startsWith('dr_client_') && out.some(d => d && d.date === item.date)) continue;
+      if (tKey) seenTitles.add(tKey);
+    }
     seen.add(k);
     out.push(item);
   }
@@ -5302,7 +5336,7 @@ function mergeBrainObjects(cloudBrain, localBrain) {
   const merged = Object.assign({}, cloudBrain);
   for (const key of ['dreams', 'rants', 'facts', 'events', 'axioms', 'directives', 'patterns', 'futures']) {
     if (Array.isArray(cloudBrain[key]) || Array.isArray(localBrain[key])) {
-      merged[key] = mergeBrainLists(cloudBrain[key], localBrain[key]);
+      merged[key] = mergeBrainLists(cloudBrain[key], localBrain[key], key);
     }
   }
   if (localBrain.activeBookmark) merged.activeBookmark = localBrain.activeBookmark;
