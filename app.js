@@ -150,6 +150,187 @@ function ensureChatHistoryBanner() {
   updateLastInChatStatus();
 }
 
+async function copyTextReliable(text, toastMsg = 'Copied to clipboard') {
+  const str = toCleanText(text).trim();
+  if (!str) return false;
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(str);
+      ok = true;
+    }
+  } catch {}
+  if (!ok) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = str;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '-9999px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, str.length);
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch {}
+  }
+  if (toastMsg && typeof toast === 'function') {
+    toast(ok ? toastMsg : 'Text selected for copy', ok ? 'teal' : 'gold');
+  }
+  return ok;
+}
+
+function extractCodexReferences(replyText = '', userContextText = '') {
+  const books = state.brain?.books || [];
+  if (!books.length) return [];
+  const rLow = toCleanText(replyText).toLowerCase();
+  const uLow = toCleanText(userContextText).toLowerCase();
+  if (!rLow || rLow.length < 25) return [];
+
+  const BOOK_ALIASES = {
+    book_jung_aion: ['jung', 'aion', 'individuation', 'shadow projection'],
+    book_ko_hung_alchemy: ['ko hung', 'pao-p', 'nei p', 'taoist alchemy'],
+    book_anderson_ancient_magic: ['personal magnetism', 'magnetic battery', 'ancient magic'],
+    book_zen_garcia_firmament: ['firmament', 'zen garcia', 'vaulted dome'],
+    book_gnostic_bible: ['gnostic', 'nag hammadi', 'demiurge', 'archon'],
+    book_anderson_expose: ['clairvoyance made easy', 'mystic sciences'],
+    book_herbal_healing: ['phyllis balch', 'herbal healing', 'herbal medicine'],
+    book_stavish_psychic: ['mark stavish', 'hermetic studies', 'psychic abilities'],
+    book_anderson_how_to_win: ['how to win', 'sure secrets of success'],
+    book_anderson_hypnotism: ['hypnotism: its uses', 'hypnotic'],
+    book_greene_human_nature: ['robert greene', 'laws of human nature'],
+    book_culling_sex_magick: ['louis culling', 'sex magick', 'g.b.g'],
+    book_webster_pendulum: ['richard webster', 'pendulum magic'],
+    book_campos_radium: ['radium and the secret', 'luis campos'],
+    book_grabovoi_resurrection: ['grabovoi', 'numerical code', 'eternal life'],
+    book_white_tigress: ['white tigress', 'hsi lai'],
+    book_spiritual_warfare_prayers: ['spiritual warfare prayers', 'courts of heaven', 'daily armor'],
+    book_grof_spiritual_emergency: ['stanislav grof', 'spiritual emergency'],
+    book_textbook_freemasonry: ['freemasonry', 'craft masonry'],
+    book_waite_ceremonial_magic: ['a.e. waite', 'arthur edward waite', 'ceremonial magic'],
+    book_complete_enoch: ['book of enoch', 'jay winter', 'watchers'],
+    book_barrett_magus: ['francis barrett', 'the magus', 'celestial intelligencer'],
+    book_gurney_power_of_sound: ['edmund gurney', 'power of sound'],
+    book_cannon_sacred_knowledge: ['dolores cannon', 'hidden, sacred knowledge'],
+    book_third_eye_code: ['nicole campbell', 'third eye code'],
+    book_counter_mind_control: ['springmeier', 'illuminati formula', 'deprogramming'],
+    book_wisdom_of_solomon_1611: ['wisdome of solomon', 'wisdom of solomon', 'king solomon'],
+    book_enoch_pond_1881: ['enoch pond', 'conversations on the bible'],
+    book_steins_gate_codex: ['steins;gate', 'world line', 'attractor field', 'reading steiner'],
+    book_anderson_philosophy_occultism: ['philosophy of occultism'],
+    book_kelly_free_energy: ['free energy devices', 'd.a. kelly'],
+    book_anderson_magnetism_materials: ['magnetism and magnetic materials', 'j.c. anderson'],
+    book_hamer_gnm_biological_laws: ['ryke geerd hamer', '5 biological laws', 'biological conflict'],
+    book_milman_history_jews_vol1: ['henry hart milman', 'history of the jews'],
+    book_hammond_physics_spiritualism: ['william a. hammond', 'physics and physiology of spiritualism'],
+    book_sagar_memory_entities: ['sagar sharma', 'memory-eating entities', 'memory market']
+  };
+
+  const results = [];
+  const words = `${rLow} ${uLow}`.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 4);
+
+  for (const bk of books) {
+    let score = 0;
+    const aliases = BOOK_ALIASES[bk.id] || [];
+    const shortTitle = toCleanText(bk.title).toLowerCase().split(/[:(]/)[0].trim();
+    if (shortTitle.length > 5 && rLow.includes(shortTitle)) score += 20;
+    for (const al of aliases) {
+      if (rLow.includes(al)) score += 15;
+    }
+
+    // Check explicit chapter number mention in reply or match best chapter
+    const chaps = Array.isArray(bk.chapters) ? bk.chapters : [];
+    let bestChap = chaps[0] || { number: 1, title: 'Chapter 1' };
+    let bestChScore = -1;
+    for (const ch of chaps) {
+      const chHay = `${ch.title || ''} ${ch.summary || ''} ${ch.poseidonLesson || ''}`.toLowerCase();
+      let cs = 0;
+      for (const w of words.slice(0, 35)) {
+        if (chHay.includes(w)) cs++;
+      }
+      if (cs > bestChScore) {
+        bestChScore = cs;
+        bestChap = ch;
+      }
+    }
+    if (score > 0 || bestChScore >= 4) {
+      results.push({
+        bookId: bk.id,
+        bookTitle: toCleanText(bk.title).split(/[:(]/)[0].trim(),
+        author: toCleanText(bk.author || '').split('/')[0].trim(),
+        chapterNumber: bestChap.number || 1,
+        chapterTitle: toCleanText(bestChap.title || ('Chapter ' + (bestChap.number || 1))),
+        score: score + bestChScore
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results.slice(0, 3);
+}
+
+function renderBubbleCodexRefs(el, replyText = '', userContextText = '') {
+  if (!el || !el.classList.contains('assistant')) return;
+  let refBox = el.querySelector('.m-codex-refs');
+  const refs = extractCodexReferences(replyText, userContextText);
+  if (!refs.length) {
+    if (refBox) refBox.remove();
+    return;
+  }
+  if (!refBox) {
+    refBox = document.createElement('div');
+    refBox.className = 'm-codex-refs';
+    const meta = el.querySelector('.m-meta');
+    if (meta) el.querySelector('.m-body').insertBefore(refBox, meta);
+    else el.querySelector('.m-body').appendChild(refBox);
+  }
+  refBox.innerHTML = `<span class="codex-ref-label">Codex Sources:</span>` + refs.map(r => `
+    <button type="button" class="codex-ref-chip" data-book="${esc(r.bookId)}" data-chap="${r.chapterNumber}" title="Open ${esc(r.bookTitle)} · ${esc(r.chapterTitle)} in Codex Reader">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:12px;height:12px;"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H11a2 2 0 0 1 1 1.73A2 2 0 0 1 13 3h6.5A2.5 2.5 0 0 1 22 5.5v13a1 1 0 0 1-1 1h-6.5a2.5 2.5 0 0 0-2.5 2 2.5 2.5 0 0 0-2.5-2H3a1 1 0 0 1-1-1v-13Z"/><path d="M12 4.73V21"/></svg>
+      <span>${esc(r.bookTitle)} · Ch.${r.chapterNumber}</span>
+    </button>
+  `).join('');
+
+  refBox.querySelectorAll('.codex-ref-chip').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const bId = btn.dataset.book;
+      const cNum = Number(btn.dataset.chap || 1);
+      if (typeof openCodexReader === 'function') {
+        openCodexReader(bId, cNum);
+      }
+    };
+  });
+}
+
+function attachMemoryUpdatedBadge(summaryText, targetTab = 'dreams') {
+  if (!summaryText || !msgs) return;
+  const allAssistantEls = msgs.querySelectorAll('.m.assistant');
+  const lastEl = allAssistantEls[allAssistantEls.length - 1];
+  if (!lastEl) return;
+  let badge = lastEl.querySelector('.m-memory-badge');
+  if (!badge) {
+    badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'm-memory-badge';
+    const body = lastEl.querySelector('.m-body');
+    if (body) body.prepend(badge);
+  }
+  badge.innerHTML = `<span class="mem-dot"></span><span>Memory Updated: ${esc(summaryText)}</span>`;
+  badge.onclick = () => {
+    if (typeof openDeepPanelToTab === 'function') {
+      openDeepPanelToTab(targetTab);
+    } else {
+      $('#deep')?.classList.add('open');
+      const tabBtn = document.querySelector(`.tabs .tab[data-tab="${targetTab}"]`);
+      if (tabBtn) tabBtn.click();
+    }
+  };
+}
+
 function addMsg(role, content, ts = Date.now(), cls = '', images = []) {
   $('.welcome')?.remove();
   ensureChatHistoryBanner();
@@ -160,8 +341,31 @@ function addMsg(role, content, ts = Date.now(), cls = '', images = []) {
   }
   const el = document.createElement('div');
   el.className = `m ${role}`;
-  el._rawText = content || '';
+  el.dataset.ts = String(ts);
+  el._rawText = toCleanText(content);
   const imgs = (images || []).filter(i => i && i.thumb).map(i => `<img src="${i.thumb}" alt="attached image" />`).join('');
+
+  const extraButtonsHtml = role === 'assistant'
+    ? `
+        <button class="copy-btn regen-btn" title="Regenerate reply" type="button">
+          <svg class="copy-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+          <span>Regenerate</span>
+        </button>
+        <button class="copy-btn pin-brain-btn" title="Pin wisdom to Poseidon's Brain" type="button">
+          <svg class="copy-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+          <span>Pin to Brain</span>
+        </button>
+      `
+    : `
+        <button class="copy-btn edit-msg-btn" title="Edit and resend message" type="button">
+          <svg class="copy-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span>Edit</span>
+        </button>
+        <button class="copy-btn log-dream-msg-btn" title="Log this message directly into Dreams Chronicle" type="button">
+          <svg class="copy-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          <span>Log Dream</span>
+        </button>
+      `;
 
   el.innerHTML = `
     <div class="m-av"><img src="./icon-192.png" alt="" /></div>
@@ -170,26 +374,128 @@ function addMsg(role, content, ts = Date.now(), cls = '', images = []) {
       <div class="bubble ${cls}">${role === 'user' ? esc(content) : md(content)}</div>
       <div class="m-meta">
         <span class="time">${fmtStamp(ts)}</span>
-        <button class="copy-btn" title="Copy text" type="button">
+        <button class="copy-btn main-copy-btn" title="Copy text" type="button">
           <svg class="copy-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           <span class="copy-txt">Copy</span>
         </button>
+        ${extraButtonsHtml}
       </div>
     </div>`;
 
-  const copyBtn = el.querySelector('.copy-btn');
-  copyBtn.onclick = (e) => {
-    e.stopPropagation();
-    const textToCopy = el._rawText || el.querySelector('.bubble').innerText;
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      copyBtn.classList.add('copied');
-      copyBtn.querySelector('.copy-txt').textContent = 'Copied';
-      setTimeout(() => {
-        copyBtn.classList.remove('copied');
-        copyBtn.querySelector('.copy-txt').textContent = 'Copy';
-      }, 1800);
-    });
-  };
+  const copyBtn = el.querySelector('.main-copy-btn');
+  if (copyBtn) {
+    copyBtn.onclick = async (e) => {
+      e.stopPropagation();
+      const textToCopy = el._rawText || el.querySelector('.bubble')?.innerText || '';
+      const ok = await copyTextReliable(textToCopy, 'Copied to clipboard');
+      if (ok) {
+        copyBtn.classList.add('copied');
+        const txtSpan = copyBtn.querySelector('.copy-txt');
+        if (txtSpan) txtSpan.textContent = 'Copied';
+        setTimeout(() => {
+          copyBtn.classList.remove('copied');
+          if (txtSpan) txtSpan.textContent = 'Copy';
+        }, 1800);
+      }
+    };
+  }
+
+  const regenBtn = el.querySelector('.regen-btn');
+  if (regenBtn) {
+    regenBtn.onclick = async (e) => {
+      e.stopPropagation();
+      if (isGeneratingChat) return;
+      // Find the preceding user message
+      let prev = el.previousElementSibling;
+      while (prev && !prev.classList.contains('user')) prev = prev.previousElementSibling;
+      const promptTxt = prev?._rawText || prev?.querySelector('.bubble')?.innerText || ([...(state.convo || [])].reverse().find(m => m.role === 'user')?.content) || '';
+      if (!promptTxt) return;
+      toast('Regenerating Poseidon reply...', 'teal');
+      send(promptTxt);
+    };
+  }
+
+  const pinBtn = el.querySelector('.pin-brain-btn');
+  if (pinBtn) {
+    pinBtn.onclick = (e) => {
+      e.stopPropagation();
+      const raw = (el._rawText || el.querySelector('.bubble')?.innerText || '').trim();
+      if (!raw) return;
+      const firstLine = raw.replace(/[#*_>`~]/g, '').split('\n').map(l => l.trim()).find(l => l.length > 20) || raw.slice(0, 220);
+      const dStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+      state.brain = state.brain || {};
+      state.brain.axioms = state.brain.axioms || [];
+      const refs = extractCodexReferences(raw);
+      const srcName = refs[0] ? `${refs[0].bookTitle} (Ch.${refs[0].chapterNumber})` : 'Poseidon Gnosis';
+      state.brain.axioms.push({
+        id: 'ax_' + Date.now(),
+        ts: Date.now(),
+        date: dStr,
+        source: srcName,
+        text: firstLine.slice(0, 280)
+      });
+      saveLocalVault(true);
+      renderBrain();
+      pinBtn.classList.add('copied');
+      pinBtn.querySelector('span').textContent = 'Pinned';
+      toast(`Pinned to Brain (${srcName})`, 'gold');
+    };
+  }
+
+  const editBtn = el.querySelector('.edit-msg-btn');
+  if (editBtn) {
+    editBtn.onclick = (e) => {
+      e.stopPropagation();
+      const raw = el._rawText || el.querySelector('.bubble')?.innerText || '';
+      if (!raw || !input) return;
+      input.value = raw;
+      autosize();
+      input.focus();
+      toast('Loaded into message box for editing', 'teal');
+    };
+  }
+
+  const logDreamBtn = el.querySelector('.log-dream-msg-btn');
+  if (logDreamBtn) {
+    logDreamBtn.onclick = (e) => {
+      e.stopPropagation();
+      const raw = (el._rawText || el.querySelector('.bubble')?.innerText || '').trim();
+      if (!raw) return;
+      const dDate = extractSpecifiedDateFromTextClient(raw, ts || Date.now());
+      const firstSentence = raw.replace(/\s+/g, ' ').split(/(?<=[.!?])\s+/)[0] || raw;
+      const shortTitle = firstSentence.slice(0, 56).replace(/[.,;:!?]+$/, '');
+      let nextEl = el.nextElementSibling;
+      while (nextEl && !nextEl.classList.contains('assistant')) nextEl = nextEl.nextElementSibling;
+      const readingTxt = (nextEl?._rawText || nextEl?.querySelector('.bubble')?.innerText || '').replace(/[#*_>`~]/g, '').trim().slice(0, 320);
+      const drEntry = {
+        id: 'dr_pin_' + Date.now(),
+        ts: ts || Date.now(),
+        date: dDate,
+        kind: 'dream',
+        title: shortTitle || 'Nocturnal Vision',
+        summary: raw.slice(0, 1400),
+        symbols: [],
+        emotions: [],
+        people: [],
+        interpretation: readingTxt
+      };
+      state.brain = state.brain || {};
+      state.brain.dreams = state.brain.dreams || [];
+      state.brain.dreams.push(drEntry);
+      state.pendingDreams = state.pendingDreams || [];
+      state.pendingDreams.push(drEntry);
+      saveLocalVault(true);
+      renderBrain();
+      logDreamBtn.classList.add('copied');
+      logDreamBtn.querySelector('span').textContent = 'Dream Logged';
+      toast(`Dream logged for ${dDate}`, 'gold');
+    };
+  }
+
+  if (role === 'assistant' && content) {
+    renderBubbleCodexRefs(el, content);
+  }
+
   el.querySelectorAll('.m-imgs img').forEach(im => im.onclick = () => window.open(im.src, '_blank'));
 
   msgs.appendChild(el);
@@ -1019,6 +1325,11 @@ async function absorbExchangeIntoBrainClient(uMsg, aMsg) {
 
   saveLocalVault(true);
   renderBrain();
+  const initialSummary = prelimDream ? `1 dream (${specifiedDate}), 1 diary log` : `1 diary log (${todayDateStr})`;
+  attachMemoryUpdatedBadge(initialSummary, prelimDream ? 'dreams' : 'rants');
+  if (prelimDream && typeof toast === 'function') {
+    toast(`Memory Updated: Logged dream (${specifiedDate})`, 'gold');
+  }
 
   // 2. Deep LLM Memory & Dream Extraction in background (extracts exact dream date, title, symbols, diary reading, facts, axioms, directives, and patterns)
   try {
@@ -1168,8 +1479,12 @@ Return strict JSON:
 
     saveLocalVault(true);
     renderBrain();
-    if (learnedParts.length && typeof toast === 'function') {
-      toast('Poseidon absorbed: ' + learnedParts.slice(0, 3).join(', '), 'teal');
+    if (learnedParts.length) {
+      const summaryStr = learnedParts.slice(0, 4).join(', ');
+      attachMemoryUpdatedBadge(summaryStr, (prelimDream || (extracted.dreams && extracted.dreams.length)) ? 'dreams' : (extracted.pattern?.title ? 'puzzle' : 'rants'));
+      if (typeof toast === 'function') {
+        toast('Memory Updated: ' + summaryStr, 'teal');
+      }
     }
   } catch {}
 }
@@ -1279,6 +1594,7 @@ async function send(text) {
       });
       bubble.innerHTML = md(fullReply);
       t._rawText = fullReply;
+      renderBubbleCodexRefs(t, fullReply, text);
 
       const replyTs = Date.now();
       state.convo = state.convo || [];
@@ -1386,6 +1702,7 @@ async function send(text) {
     }
 
     const doneTs = Date.now();
+    renderBubbleCodexRefs(t, fullReply, text);
     state.convo = state.convo || [];
     const uMsg = { role: 'user', content: text, ts: userTs, images: images.map(i => ({ thumb: i.thumb })) };
     const aMsg = { role: 'assistant', content: fullReply, ts: doneTs };
@@ -1429,6 +1746,7 @@ async function send(text) {
       });
       bubble.innerHTML = md(fullReply);
       t._rawText = fullReply;
+      renderBubbleCodexRefs(t, fullReply, text);
       const replyTs = Date.now();
       state.convo = state.convo || [];
       state.pendingMessages = state.pendingMessages || [];
@@ -1445,7 +1763,7 @@ async function send(text) {
         bubble.innerHTML = md('*(Poseidon was halted)*');
         return;
       }
-      bubble.innerHTML = 'Mac is currently asleep/offline and direct key was not reached. All 30 Ancient Books in your Codex Reader, Dreams, and Rants remain 100% accessible offline right now.';
+      bubble.innerHTML = 'Mac is currently asleep/offline and direct key was not reached. All 36 Ancient Books in your Codex Reader, Dreams, and Rants remain 100% accessible offline right now.';
       bubble.classList.add('error');
     }
   } finally {
@@ -1577,7 +1895,8 @@ function watchLearning(baseline) {
         saveLocalVault();
         renderBrain();
         const last = log[log.length - 1];
-        toast('Poseidon learned: ' + last.summary, 'teal');
+        attachMemoryUpdatedBadge(last.summary, last.counts?.dreams ? 'dreams' : 'rants');
+        toast('Memory Updated: ' + last.summary, 'teal');
         updateLastInChatStatus();
         return;
       }
@@ -4987,11 +5306,30 @@ document.addEventListener('click', e => {
 });
 
 document.querySelectorAll('#composerActionSheet [data-sheet-action]').forEach(btn => {
-  btn.onclick = () => {
+  btn.onclick = async () => {
     const act = btn.dataset.sheetAction;
     closeActionSheet();
     const bm = state.brain?.activeBookmark;
-    if (act === 'attach-image') {
+    if (act === 'paste-clipboard') {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const clipTxt = await navigator.clipboard.readText();
+          if (clipTxt && input) {
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? input.value.length;
+            input.value = input.value.slice(0, start) + clipTxt + input.value.slice(end);
+            autosize();
+            input.focus();
+            toast('Pasted from clipboard', 'teal');
+            return;
+          }
+        }
+      } catch {}
+      if (input) {
+        input.focus();
+        toast('Tap inside the message box and tap Paste', 'gold');
+      }
+    } else if (act === 'attach-image') {
       $('#imageInput')?.click();
     } else if (act === 'read-chapter') {
       openCodexReader(bm?.bookId, bm?.chapterNumber, 'reader');
@@ -5262,7 +5600,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v29';
+const APP_SW_VERSION = 'poseidon-sanctum-v30';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {

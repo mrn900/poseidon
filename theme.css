@@ -1767,3 +1767,89 @@ button, .action-btn, .pill-btn, .chip-btn, .foot-btn, .primary, .ghost {
   }
 }
 
+/* Codex Book & Chapter Reference Chips, Memory Updated Badge & Universal Copy-Paste Support */
+.bubble,
+.bubble *,
+.m-body p,
+.card p,
+.card .reading,
+.card li,
+.codex-article,
+.codex-article *,
+textarea,
+input {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
+.m-memory-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  margin-bottom: 8px !important;
+  padding: 5px 11px !important;
+  border-radius: 999px !important;
+  background: rgba(28, 212, 182, 0.11) !important;
+  border: 1px solid rgba(28, 212, 182, 0.32) !important;
+  color: #7ef3df !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.18s ease !important;
+}
+.m-memory-badge:hover {
+  background: rgba(28, 212, 182, 0.2) !important;
+  border-color: rgba(28, 212, 182, 0.55) !important;
+}
+.m-memory-badge .mem-dot {
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 50% !important;
+  background: #1cd4b6 !important;
+  box-shadow: 0 0 8px #1cd4b6 !important;
+}
+
+.m-codex-refs {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-top: 9px !important;
+  padding-top: 8px !important;
+  border-top: 1px solid rgba(226, 184, 87, 0.16) !important;
+}
+.codex-ref-label {
+  font-size: 10.5px !important;
+  font-family: var(--font-mono, monospace) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  color: rgba(226, 184, 87, 0.85) !important;
+  margin-right: 2px !important;
+}
+.codex-ref-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 4px 10px !important;
+  border-radius: 999px !important;
+  background: rgba(226, 184, 87, 0.11) !important;
+  border: 1px solid rgba(226, 184, 87, 0.32) !important;
+  color: #f3d27a !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+}
+.codex-ref-chip:hover {
+  background: rgba(226, 184, 87, 0.22) !important;
+  border-color: rgba(226, 184, 87, 0.65) !important;
+  color: #fff3c4 !important;
+}
+
+.m-meta {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
