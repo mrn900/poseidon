@@ -256,7 +256,7 @@ function extractCodexReferences(replyText = '', userContextText = '') {
         bestChap = ch;
       }
     }
-    if (score > 0 || bestChScore >= 4) {
+    if (score > 0) {
       results.push({
         bookId: bk.id,
         bookTitle: toCleanText(bk.title).split(/[:(]/)[0].trim(),
@@ -269,7 +269,7 @@ function extractCodexReferences(replyText = '', userContextText = '') {
   }
 
   results.sort((a, b) => b.score - a.score);
-  return results.slice(0, 3);
+  return results.slice(0, 2);
 }
 
 function renderBubbleCodexRefs(el, replyText = '', userContextText = '') {
@@ -917,7 +917,7 @@ async function callClientGeminiJson(systemPromptText, userPromptText, maxTokens 
         contents: [{ role: 'user', parts: [{ text: userPromptText }] }],
         generationConfig: {
           temperature: 0.35,
-          maxOutputTokens: maxTokens,
+          maxOutputTokens: Math.max(Number(maxTokens) || 2048, 8192),
           responseMimeType: 'application/json',
           ...(mName === 'gemini-3-flash-preview' ? { thinkingConfig: { thinkingBudget: 0 } } : {})
         },
@@ -1200,7 +1200,7 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       contents: recent,
       generationConfig: {
         temperature: 0.85,
-        maxOutputTokens: 2500,
+        maxOutputTokens: 16384,
         ...(mName === 'gemini-3-flash-preview' ? { thinkingConfig: { thinkingBudget: 0 } } : {})
       },
       safetySettings
@@ -1286,7 +1286,7 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       contents: recent,
       generationConfig: {
         temperature: 0.85,
-        maxOutputTokens: 2500,
+        maxOutputTokens: 16384,
         ...(mName === 'gemini-3-flash-preview' ? { thinkingConfig: { thinkingBudget: 0 } } : {})
       },
       safetySettings
@@ -2741,8 +2741,10 @@ function renderBrain() {
   const symCount = Object.keys(b.symbols || {}).length;
   const futureCount = b.futures?.length || 0;
   const totalDeepCount = bookCount + dreamCount + rantCount + symCount + futureCount;
+  if ($('#codexBadge') && bookCount) $('#codexBadge').textContent = bookCount;
   if ($('#deepBadge')) $('#deepBadge').textContent = totalDeepCount;
   if ($('#drawerDeepBadge')) $('#drawerDeepBadge').textContent = totalDeepCount;
+  ensureFullCodexChaptersLoaded();
 
   // 0. SACRED LIBRARY (APPLE BOOKS EDITION), ACTIVE BOOKMARK, LIVING AXIOMS & SOVEREIGN DIRECTIVES
   const libEl = $('#libraryContainer');
@@ -4470,7 +4472,18 @@ function setCodexView(viewMode = 'reader') {
   }
 }
 
+function openBookPdfOrArchivalText(bookId) {
+  if (!window.location.origin.includes('github.io')) {
+    window.open(`/api/books/pdf/${encodeURIComponent(bookId)}`, '_blank');
+    return;
+  }
+  codexReadMode = 'fulltext';
+  openCodexReader(bookId, selectedCodexChapterNum || 1, 'reader');
+  toast('Opened Original Archival Text in Codex Reader', 'gold');
+}
+
 function openCodexReader(bookId = null, chapterNum = null, viewMode = null) {
+  ensureFullCodexChaptersLoaded();
   const books = state.brain?.books || [];
   if (!books.length) return;
 
@@ -4669,7 +4682,7 @@ function renderCodexShelf() {
   gridEl.querySelectorAll('.shelf-pdf-btn').forEach(btn => {
     btn.onclick = () => {
       const bId = btn.dataset.book;
-      window.open(`/api/books/pdf/${encodeURIComponent(bId)}`, '_blank');
+      openBookPdfOrArchivalText(bId);
     };
   });
 }
@@ -4743,7 +4756,7 @@ function renderCodexReaderChamber() {
   const pdfBtn = $('#codexStreamPdfBtn');
   if (pdfBtn) {
     pdfBtn.style.display = book.pdfFile ? 'inline-block' : 'none';
-    pdfBtn.onclick = () => window.open(`/api/books/pdf/${encodeURIComponent(book.id)}`, '_blank');
+    pdfBtn.onclick = () => openBookPdfOrArchivalText(book.id);
   }
 
   // Render Table of Contents in Left Sidebar
@@ -4857,6 +4870,7 @@ function renderCodexReaderChamber() {
         <span class="ccr-step-tag">CHAPTER ${selectedCodexChapterNum} OF ${chapters.length}${currentChap.pageRange ? ` · ${esc(currentChap.pageRange).toUpperCase()}` : ''}</span>
         <h3 class="ccr-chap-title">${esc(currentChap.title)}</h3>
         <div class="ccr-banner-actions">
+          <button id="copyChapBtn" type="button" class="ghost action-btn" title="Copy chapter breakdown">Copy Chapter</button>
           <button id="deepDiveChapBtn" type="button" class="ghost action-btn" title="Have Poseidon perform live AI deep-dive expansion">AI Deep-Dive</button>
           <button id="toggleChapCompleteBtn" type="button" class="ghost action-btn ${isChapCompleted ? 'chap-done-active' : ''}">
             ${isChapCompleted ? '✓ Chapter Completed' : 'Mark Chapter Read'}
@@ -4954,26 +4968,69 @@ function renderCodexReaderChamber() {
     };
   }
 
-  // Wire AI Deep Dive
+  // Wire Copy Chapter
+  const copyChapBtn = $('#copyChapBtn');
+  if (copyChapBtn) {
+    copyChapBtn.onclick = () => {
+      const chapTxt = [
+        `${book.title} (${book.author || 'Sacred Tradition'})`,
+        `${currentChap.title} (${currentChap.pageRange || 'Chapter ' + selectedCodexChapterNum})`,
+        '',
+        'SUMMARY:',
+        toCleanText(currentChap.summary),
+        '',
+        'HOW TO & ACTION PROTOCOL:',
+        toCleanText(currentChap.howToAct),
+        '',
+        'POSEIDON LESSON:',
+        toCleanText(currentChap.poseidonLesson)
+      ].join('\n');
+      copyTextReliable(chapTxt, 'Chapter copied to clipboard');
+    };
+  }
+
+  // Wire AI Deep Dive (Mac Server + Autonomous Mobile Gemini/Groq Fallback)
   const deepDiveBtn = $('#deepDiveChapBtn');
   if (deepDiveBtn) {
     deepDiveBtn.onclick = async () => {
       deepDiveBtn.disabled = true;
-      deepDiveBtn.textContent = 'Reading Full Chapter...';
+      deepDiveBtn.textContent = 'Expanding Chapter...';
       try {
-        const res = await fetch('/api/books/deep-dive', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bookId: book.id, chapterNumber: selectedCodexChapterNum })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Deep dive failed');
-        if (data.chapter) {
-          Object.assign(currentChap, data.chapter);
-          saveLocalVault();
-          renderCodexReaderChamber();
-          toast('Chapter expanded with deep masterclass and execution protocol', 'gold');
+        let expanded = null;
+        if (!window.location.origin.includes('github.io')) {
+          const res = await fetch('/api/books/deep-dive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bookId: book.id, chapterNumber: selectedCodexChapterNum })
+          }).catch(() => null);
+          if (res && res.ok) {
+            const data = await res.json();
+            if (data && data.chapter) expanded = data.chapter;
+          }
         }
+        if (!expanded) {
+          const sys = `${buildLiveClientBrainContext(book.title + ' ' + currentChap.title)}\n\nYou are Poseidon, performing an exhaustive deep-dive masterclass expansion of this chapter for Henri Joshua Nembaware. Zero em dashes. Return strict JSON:
+{
+  "summary": "Rich 3-4 paragraph exhaustive breakdown of the hidden mechanics and teachings in this chapter",
+  "howToAct": "Concrete numbered step-by-step execution protocol Henri can apply today",
+  "poseidonLesson": "Poseidon's raw, unfiltered, zero-sycophancy lesson connecting this chapter to Henri's discipline, wealth, and sovereignty",
+  "fullText": "Expanded archival study doctrine and key principles from this chapter"
+}`;
+          const prompt = `Book: "${book.title}" by ${book.author || 'Sacred Tradition'}\nChapter ${selectedCodexChapterNum}: ${currentChap.title}\nExisting Summary: ${currentChap.summary || ''}\nExisting Lesson: ${currentChap.poseidonLesson || ''}\nExisting How-To: ${currentChap.howToAct || ''}\n\nExpand this chapter deeply now.`;
+          const j = await callClientGeminiJson(sys, prompt, 4000, 'chat');
+          if (!j) throw new Error('Could not expand chapter right now');
+          expanded = {
+            summary: toCleanText(j.summary || currentChap.summary),
+            howToAct: toCleanText(j.howToAct || currentChap.howToAct),
+            poseidonLesson: toCleanText(j.poseidonLesson || currentChap.poseidonLesson),
+            fullText: toCleanText(j.fullText || currentChap.fullText),
+            aiDeepened: true
+          };
+        }
+        Object.assign(currentChap, expanded);
+        saveLocalVault(true);
+        renderCodexReaderChamber();
+        toast('Chapter expanded with deep masterclass and execution protocol', 'gold');
       } catch (err) {
         toast('Deep dive error: ' + err.message, 'gold');
         deepDiveBtn.disabled = false;
@@ -5702,7 +5759,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v30';
+const APP_SW_VERSION = 'poseidon-sanctum-v31';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
@@ -5979,7 +6036,9 @@ async function getEffectiveSyncEndpoints() {
 }
 
 async function attemptCloudBrainSync(manual = false) {
-  if (isGeneratingChat && !manual) return false;
+  if (!manual && (isGeneratingChat || (input && (document.activeElement === input || input.value.trim().length > 0)))) {
+    return false;
+  }
   const syncBtnSpan = $('#topSyncBtn span');
   const origSyncText = syncBtnSpan ? syncBtnSpan.textContent : 'Sync';
   if (manual && syncBtnSpan) syncBtnSpan.textContent = 'Syncing...';
