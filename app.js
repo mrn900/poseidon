@@ -552,28 +552,49 @@ function welcome() {
 
 const LOCAL_VAULT_KEY = 'poseidon_autonomous_vault_v2';
 let _vaultSaveTimer = null;
+let _codexHydrating = false;
 
 function _flushLocalVaultNow() {
   try {
     const rawBrain = state.brain || {};
-    const compactBooks = Array.isArray(rawBrain.books)
+    const preservedBooks = Array.isArray(rawBrain.books)
       ? rawBrain.books.map(bk => ({
           id: bk.id,
           title: bk.title,
           author: bk.author,
           year: bk.year,
           category: bk.category,
-          summary: String(bk.summary || '').slice(0, 300),
+          totalPages: bk.totalPages,
+          pdfFile: bk.pdfFile,
+          summary: String(bk.summary || ''),
+          corePrinciples: bk.corePrinciples || [],
+          tacticalLaws: bk.tacticalLaws || [],
           bookmarkedChapter: bk.bookmarkedChapter || 1,
           completedChapters: bk.completedChapters || [],
           readingStatus: bk.readingStatus || 'want_to_read',
-          userNotes: bk.userNotes || {}
+          userNotes: bk.userNotes || {},
+          chapters: Array.isArray(bk.chapters)
+            ? bk.chapters.map(ch => ({
+                number: ch.number,
+                title: ch.title,
+                pageRange: ch.pageRange,
+                summary: ch.summary,
+                poseidonLesson: ch.poseidonLesson,
+                howToAct: ch.howToAct,
+                fullText: String(ch.fullText || '').slice(0, 1800)
+              }))
+            : []
         }))
       : [];
-    const compactBrain = Object.assign({}, rawBrain, { books: compactBooks });
+    const cleanConvo = (state.convo || []).slice(-180).map(m => ({
+      role: m.role,
+      content: m.content,
+      ts: m.ts
+    }));
+    const savedBrain = Object.assign({}, rawBrain, { books: preservedBooks });
     localStorage.setItem(LOCAL_VAULT_KEY, JSON.stringify({
-      convo: (state.convo || []).slice(-180),
-      brain: compactBrain,
+      convo: cleanConvo,
+      brain: savedBrain,
       settings: state.settings || {},
       systemPromptSnapshot: '',
       pendingDreams: state.pendingDreams || [],
@@ -581,25 +602,106 @@ function _flushLocalVaultNow() {
       pendingMessages: state.pendingMessages || [],
       savedAt: Date.now()
     }));
-  } catch {}
+  } catch {
+    try {
+      const rawBrain = state.brain || {};
+      const liteBooks = Array.isArray(rawBrain.books)
+        ? rawBrain.books.map(bk => ({
+            id: bk.id,
+            title: bk.title,
+            author: bk.author,
+            year: bk.year,
+            category: bk.category,
+            summary: String(bk.summary || '').slice(0, 400),
+            corePrinciples: bk.corePrinciples || [],
+            tacticalLaws: bk.tacticalLaws || [],
+            bookmarkedChapter: bk.bookmarkedChapter || 1,
+            completedChapters: bk.completedChapters || [],
+            readingStatus: bk.readingStatus || 'want_to_read',
+            userNotes: bk.userNotes || {},
+            chapters: Array.isArray(bk.chapters)
+              ? bk.chapters.map(ch => ({
+                  number: ch.number,
+                  title: ch.title,
+                  pageRange: ch.pageRange,
+                  summary: ch.summary,
+                  poseidonLesson: ch.poseidonLesson,
+                  howToAct: ch.howToAct
+                }))
+              : []
+          }))
+        : [];
+      localStorage.setItem(LOCAL_VAULT_KEY, JSON.stringify({
+        convo: (state.convo || []).slice(-140).map(m => ({ role: m.role, content: m.content, ts: m.ts })),
+        brain: Object.assign({}, rawBrain, { books: liteBooks }),
+        settings: state.settings || {},
+        savedAt: Date.now()
+      }));
+    } catch {}
+  }
 }
 
-function mergeCompactBooksIntoBrain(fullBooks, cachedBooks) {
-  if (!Array.isArray(fullBooks) || !fullBooks.length) return cachedBooks || [];
-  if (!Array.isArray(cachedBooks) || !cachedBooks.length) return fullBooks;
-  const cachedMap = new Map(cachedBooks.map(b => [b.id, b]));
-  return fullBooks.map(bk => {
-    const cb = cachedMap.get(bk.id);
-    if (!cb) return bk;
-    return Object.assign({}, bk, {
-      bookmarkedChapter: cb.bookmarkedChapter || bk.bookmarkedChapter || 1,
-      completedChapters: (cb.completedChapters && cb.completedChapters.length >= (bk.completedChapters || []).length)
-        ? cb.completedChapters
-        : (bk.completedChapters || []),
-      readingStatus: cb.readingStatus || bk.readingStatus,
-      userNotes: Object.assign({}, bk.userNotes || {}, cb.userNotes || {})
+function mergeCompactBooksIntoBrain(booksA, booksB) {
+  const listA = Array.isArray(booksA) ? booksA : [];
+  const listB = Array.isArray(booksB) ? booksB : [];
+  if (!listA.length) return listB;
+  if (!listB.length) return listA;
+  const mapA = new Map(listA.map(b => [b.id, b]));
+  const mapB = new Map(listB.map(b => [b.id, b]));
+  const allIds = [...new Set([...mapA.keys(), ...mapB.keys()])];
+  return allIds.map(id => {
+    const a = mapA.get(id);
+    const b = mapB.get(id);
+    if (!a) return b;
+    if (!b) return a;
+    const aCh = Array.isArray(a.chapters) ? a.chapters.length : 0;
+    const bCh = Array.isArray(b.chapters) ? b.chapters.length : 0;
+    const base = aCh >= bCh ? a : b;
+    const other = aCh >= bCh ? b : a;
+    return Object.assign({}, base, {
+      bookmarkedChapter: b.bookmarkedChapter || a.bookmarkedChapter || 1,
+      completedChapters: ((b.completedChapters || []).length >= (a.completedChapters || []).length)
+        ? (b.completedChapters || [])
+        : (a.completedChapters || []),
+      readingStatus: (b.readingStatus && b.readingStatus !== 'want_to_read') ? b.readingStatus : (a.readingStatus || 'want_to_read'),
+      userNotes: Object.assign({}, a.userNotes || {}, b.userNotes || {})
     });
   });
+}
+
+async function ensureFullCodexChaptersLoaded() {
+  if (_codexHydrating) return;
+  const books = state.brain?.books || [];
+  const needsHydration = !books.length || books.some(bk => !Array.isArray(bk.chapters) || bk.chapters.length === 0 || !bk.chapters[0]?.poseidonLesson);
+  if (!needsHydration) return;
+  _codexHydrating = true;
+  try {
+    const urls = [];
+    if (!window.location.origin.includes('github.io')) urls.push('/api/state');
+    urls.push(`./data_state.json?v=${Date.now()}`);
+    urls.push(`https://raw.githubusercontent.com/mrn900/poseidon/main/data_state.json?v=${Date.now()}`);
+    for (const u of urls) {
+      try {
+        const r = await fetch(u, { cache: 'no-store' });
+        if (!r || !r.ok) continue;
+        const j = await r.json();
+        const incomingBooks = j?.brain?.books;
+        if (Array.isArray(incomingBooks) && incomingBooks.length && Array.isArray(incomingBooks[0]?.chapters) && incomingBooks[0].chapters.length) {
+          state.brain = state.brain || {};
+          state.brain.books = mergeCompactBooksIntoBrain(incomingBooks, state.brain.books || []);
+          saveLocalVault(true);
+          renderBrain();
+          if (!$('#codexReaderModal')?.classList.contains('hidden')) {
+            if ($('#codexReaderModal')?.dataset.view === 'shelf') renderCodexShelf();
+            else renderCodexReaderChamber();
+          }
+          break;
+        }
+      } catch {}
+    }
+  } finally {
+    _codexHydrating = false;
+  }
 }
 
 function saveLocalVault(immediate = false) {
