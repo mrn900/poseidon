@@ -473,7 +473,7 @@ function addMsg(role, content, ts = Date.now(), cls = '', images = []) {
         date: dDate,
         kind: 'dream',
         title: shortTitle || 'Nocturnal Vision',
-        summary: raw.slice(0, 1400),
+        summary: raw,
         symbols: [],
         emotions: [],
         people: [],
@@ -1200,7 +1200,6 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       contents: recent,
       generationConfig: {
         temperature: 0.85,
-        maxOutputTokens: 16384,
         ...(mName === 'gemini-3-flash-preview' ? { thinkingConfig: { thinkingBudget: 0 } } : {})
       },
       safetySettings
@@ -1286,7 +1285,6 @@ async function directAutonomousGeminiChat(userMessage, images = [], signal = nul
       contents: recent,
       generationConfig: {
         temperature: 0.85,
-        maxOutputTokens: 16384,
         ...(mName === 'gemini-3-flash-preview' ? { thinkingConfig: { thinkingBudget: 0 } } : {})
       },
       safetySettings
@@ -1397,7 +1395,7 @@ async function absorbExchangeIntoBrainClient(uMsg, aMsg) {
       kind: isDreamMention ? 'dream_reflection' : 'daily_chat',
       source: 'daily_chat',
       title: shortTitle || 'Daily Reflection',
-      text: cleanTxt.slice(0, 1400),
+      text: cleanTxt,
       reading: replyGist
     };
     state.brain.rants.push(diaryItem);
@@ -1414,7 +1412,7 @@ async function absorbExchangeIntoBrainClient(uMsg, aMsg) {
       date: specifiedDate,
       kind: 'dream',
       title: shortTitle || 'Nocturnal Vision',
-      summary: cleanTxt.slice(0, 1400),
+      summary: cleanTxt,
       symbols: [],
       emotions: [],
       people: [],
@@ -1611,8 +1609,8 @@ function syncNewMessagesEverywhere(uMsg, aMsg) {
         ts: Date.now(),
         activeBookmark: bmCompact,
         messages: [
-          { role: uMsg.role, content: String(uMsg.content || '').slice(0, 1400), ts: uMsg.ts },
-          { role: aMsg.role, content: String(aMsg.content || '').slice(0, 1800), ts: aMsg.ts }
+          { role: uMsg.role, content: String(uMsg.content || ''), ts: uMsg.ts },
+          { role: aMsg.role, content: String(aMsg.content || ''), ts: aMsg.ts }
         ]
       })
     }).catch(() => {});
@@ -5759,7 +5757,7 @@ if ($('#copyLanBtn')) {
 }
 
 // ---------- Register Service Worker for Offline / Mac-Off Access ----------
-const APP_SW_VERSION = 'poseidon-sanctum-v31';
+const APP_SW_VERSION = 'poseidon-sanctum-v32';
 if ('caches' in window) {
   caches.keys().then(keys => {
     keys.forEach(k => {
@@ -5884,8 +5882,8 @@ const OLD_STUB_TEXT = 'I hear you, Henri. Stand firm in your sovereignty, keep y
 
 function mergeConvoArrays(baseList, incomingList) {
   const out = [];
-  const seenTs = new Set();
-  const seenTxt = new Map();
+  const byTs = new Map();
+  const byTxt = new Map();
   for (const arr of [baseList || [], incomingList || []]) {
     for (const m of arr) {
       if (!m || !m.content) continue;
@@ -5893,14 +5891,27 @@ function mergeConvoArrays(baseList, incomingList) {
       const body = String(m.content).trim();
       if (body.includes('Mac is currently asleep/offline and direct key was not reached')) continue;
       if (m.role === 'assistant' && body === OLD_STUB_TEXT) continue;
-      if (m.ts && seenTs.has(m.ts)) continue;
-      const tKey = `${m.role}:${body.slice(0, 100)}`;
       const mTs = Number(m.ts) || 0;
-      const prevTs = seenTxt.get(tKey);
-      if (prevTs !== undefined && Math.abs(mTs - prevTs) < 15000) continue;
-      out.push(m);
-      if (m.ts) seenTs.add(m.ts);
-      seenTxt.set(tKey, mTs);
+      const tKey = `${m.role}:${body.slice(0, 100)}`;
+
+      if (m.ts && byTs.has(m.ts)) {
+        const existing = byTs.get(m.ts);
+        if (body.length > String(existing.content || '').length) {
+          existing.content = m.content;
+        }
+        continue;
+      }
+      const prevEntry = byTxt.get(tKey);
+      if (prevEntry && Math.abs(mTs - (Number(prevEntry.ts) || 0)) < 15000) {
+        if (body.length > String(prevEntry.content || '').length) {
+          prevEntry.content = m.content;
+        }
+        continue;
+      }
+      const clone = Object.assign({}, m);
+      out.push(clone);
+      if (m.ts) byTs.set(m.ts, clone);
+      byTxt.set(tKey, clone);
     }
   }
   out.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
@@ -6059,7 +6070,7 @@ async function attemptCloudBrainSync(manual = false) {
     try {
       const tail = convoToSend.slice(-2).map(m => ({
         role: m.role,
-        content: String(m.content || '').slice(0, 1400),
+        content: String(m.content || ''),
         ts: m.ts || Date.now()
       }));
       fetch(`https://ntfy.sh/${CHAT_RELAY_TOPIC}`, {
